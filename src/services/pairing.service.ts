@@ -2,8 +2,10 @@ import { AppError } from "../middleware/error.middleware";
 import * as pairQueries from "../db/queries/pair.queries";
 import * as pairingTokenQueries from "../db/queries/pairing-token.queries";
 import * as listQueries from "../db/queries/list.queries";
+import { findUserById } from "../db/queries/user.queries";
 import { generateSlug } from "../utils/slug";
 import { generatePairingCode } from "../utils/pairing-code";
+import { sendPushNotification } from "./notification.service";
 import {
   QR_EXPIRY_MINUTES,
   CODE_EXPIRY_MINUTES,
@@ -34,7 +36,7 @@ function buildPairingTokenResponse(
       expires_at: qrExpiresAt.toISOString(),
     },
     invite_link: {
-      url: `https://jibjib.app/join/${row.slug}`,
+      url: `https://jibjib.indiecodes.com/join/${row.slug}`,
       slug: row.slug,
       expires_at: inviteExpiresAt.toISOString(),
     },
@@ -47,19 +49,25 @@ function buildPairingTokenResponse(
 
 /**
  * Create a new pairing for a user who is not yet paired.
- * Creates a pair, generates QR token + slug + code, and creates the default list.
+ * If the user already has a solo pair (user_b is NULL, from sign-up),
+ * reuses that pair. Otherwise creates a new pair + list.
  */
 export async function createPairing(userId: string): Promise<PairingToken> {
-  // 1. Check user is not already paired
-  const existingPair = await pairQueries.findActivePairByUserId(userId);
-  if (existingPair) {
-    throw new AppError("ALREADY_PAIRED", 409, "You are already in a pair.");
+  let pair = await pairQueries.findActivePairByUserId(userId);
+
+  if (pair && pair.user_b_id) {
+    // Already fully paired with someone
+    throw new AppError("ALREADY_PAIRED", 409, "You are already paired with someone.");
   }
 
-  // 2. Create pair (user_a = userId)
-  const pair = await pairQueries.createPair(userId);
+  if (!pair) {
+    // No pair at all — create one
+    pair = await pairQueries.createPair(userId);
+    // Create default list for the pair
+    await listQueries.createList(pair.id);
+  }
 
-  // 3. Create pairing token with slug, code, QR token
+  // Generate pairing token with slug, code, QR token
   const slug = generateSlug();
   const code = generatePairingCode();
 
@@ -76,10 +84,6 @@ export async function createPairing(userId: string): Promise<PairingToken> {
     expires_at: expiresAt,
   });
 
-  // 4. Create default list for the pair
-  await listQueries.createList(pair.id);
-
-  // 5. Return PairingToken response
   return buildPairingTokenResponse(tokenRow);
 }
 
@@ -143,10 +147,14 @@ export async function joinPairing(
     throw new AppError("PAIRING_USED", 409, "This pairing has already been used.");
   }
 
-  // 4. Check user not already paired
+  // 4. Check user not already fully paired (solo pair from sign-up is OK — archive it)
   const existingPair = await pairQueries.findActivePairByUserId(userId);
   if (existingPair) {
-    throw new AppError("ALREADY_PAIRED", 409, "You are already in a pair.");
+    if (existingPair.user_b_id) {
+      throw new AppError("ALREADY_PAIRED", 409, "You are already paired with someone.");
+    }
+    // Archive the solo pair so the joiner can join the creator's pair
+    await pairQueries.archivePair(existingPair.id);
   }
 
   // 5. Check user not joining own pair
@@ -164,6 +172,17 @@ export async function joinPairing(
   // 7. Return pair and list with items
   const lists = await listQueries.findListsByPairId(completedPair.id);
   const list = lists[0]; // There should be exactly one default list
+
+  // Send push notification to the creator that their partner joined
+  const joiner = await findUserById(userId);
+  const joinerName = joiner?.name ?? "Your partner";
+  sendPushNotification(
+    completedPair.user_a_id,
+    "pairing_invite",
+    "Partner joined!",
+    `${joinerName} has joined your JibJib pair`,
+    { pair_id: completedPair.id },
+  );
 
   return { pair: completedPair, list };
 }

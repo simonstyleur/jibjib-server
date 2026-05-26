@@ -30,7 +30,7 @@ router.get(
         limit,
       );
 
-      res.json(result);
+      res.json({ data: result.messages, has_more: result.has_more, cursor: result.cursor });
     } catch (err) {
       next(err);
     }
@@ -61,7 +61,7 @@ router.post(
         type,
       );
 
-      res.status(201).json({ message });
+      res.status(201).json({ data: message });
     } catch (err) {
       next(err);
     }

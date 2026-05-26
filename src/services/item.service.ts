@@ -6,10 +6,16 @@ import {
   softDeleteItem,
   restoreItem as dbRestoreItem,
   countItemsByListId,
+  findDuplicateNames,
 } from "../db/queries/item.queries";
 import type { ItemRow } from "../db/queries/item.queries";
+import { findPairById } from "../db/queries/pair.queries";
+import { findUserById } from "../db/queries/user.queries";
 import { AppError } from "../middleware/error.middleware";
 import { MAX_ITEMS_PER_LIST, UNDO_WINDOW_SECONDS } from "../constants/limits";
+import { emitToPair } from "../socket/emitter";
+import { WS_EVENTS } from "../constants/events";
+import { sendPushNotification } from "./notification.service";
 import type { Item } from "../types";
 
 /**
@@ -52,19 +58,64 @@ export async function addItems(
 ): Promise<Item[]> {
   await verifyListAccess(listId, pairId);
 
+  // Filter out items that already exist on the list (case-insensitive)
+  const names = items.map((i) => i.name);
+  const existingNames = await findDuplicateNames(listId, names);
+  const existingSet = new Set(existingNames);
+  const uniqueItems = items.filter(
+    (i) => !existingSet.has(i.name.trim().toLowerCase()),
+  );
+
+  if (uniqueItems.length === 0) {
+    throw new AppError(
+      "DUPLICATE_ITEM",
+      409,
+      items.length === 1
+        ? `"${items[0].name}" is already on your list.`
+        : "All items already exist on your list.",
+    );
+  }
+
   // Enforce max items per list
   const currentCount = await countItemsByListId(listId);
-  if (currentCount + items.length > MAX_ITEMS_PER_LIST) {
+  if (currentCount + uniqueItems.length > MAX_ITEMS_PER_LIST) {
     throw new AppError(
       "LIMIT_EXCEEDED",
       400,
-      `Cannot add ${items.length} items. List has ${currentCount}/${MAX_ITEMS_PER_LIST} items.`,
+      `Cannot add ${uniqueItems.length} items. List has ${currentCount}/${MAX_ITEMS_PER_LIST} items.`,
       { current_count: currentCount, max: MAX_ITEMS_PER_LIST },
     );
   }
 
-  const rows = await dbCreateItems(listId, items, userId);
-  return rows.map(toItem);
+  const rows = await dbCreateItems(listId, uniqueItems, userId);
+  const created = rows.map(toItem);
+
+  emitToPair(pairId, WS_EVENTS.ITEM_ADDED, {
+    list_id: listId,
+    items: created,
+  });
+
+  // Send push notification to partner
+  const pair = await findPairById(pairId);
+  if (pair) {
+    const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
+    if (partnerId) {
+      const user = await findUserById(userId);
+      const adderName = user?.name ?? "Your partner";
+      const itemNames = created.map((i) => i.name).join(", ");
+      sendPushNotification(
+        partnerId,
+        "items_added",
+        "New items added",
+        created.length === 1
+          ? `${adderName} added "${created[0].name}" to the list`
+          : `${adderName} added ${created.length} items: ${itemNames}`,
+        { list_id: listId },
+      );
+    }
+  }
+
+  return created;
 }
 
 /**
@@ -124,7 +175,14 @@ export async function updateItem(
   }
 
   const updatedRow = await dbUpdateItem(itemId, fields);
-  return toItem(updatedRow);
+  const item = toItem(updatedRow);
+
+  emitToPair(pairId, WS_EVENTS.ITEM_UPDATED, {
+    list_id: listId,
+    item,
+  });
+
+  return item;
 }
 
 /**
@@ -149,6 +207,12 @@ export async function deleteItem(
     new Date(deletedAt).getTime() + UNDO_WINDOW_SECONDS * 1000,
   ).toISOString();
 
+  emitToPair(pairId, WS_EVENTS.ITEM_DELETED, {
+    list_id: listId,
+    item_id: itemId,
+    deleted_at: deletedAt,
+  });
+
   return { deleted_at: deletedAt, undo_until: undoUntil };
 }
 
@@ -170,5 +234,12 @@ export async function undoDeleteItem(
   }
 
   const restoredRow = await dbRestoreItem(itemId);
-  return toItem(restoredRow);
+  const item = toItem(restoredRow);
+
+  emitToPair(pairId, WS_EVENTS.ITEM_RESTORED, {
+    list_id: listId,
+    item,
+  });
+
+  return item;
 }

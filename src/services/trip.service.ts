@@ -7,9 +7,13 @@ import {
   endTrip as dbEndTrip,
   findSkippedItems,
 } from "../db/queries/trip.queries";
+import { findPairById } from "../db/queries/pair.queries";
+import { findUserById } from "../db/queries/user.queries";
 import { query } from "../db/pool";
 import { emitToPair } from "../socket/emitter";
 import { WS_EVENTS } from "../constants/events";
+import { sendPushNotification } from "./notification.service";
+import { logger } from "../utils/logger";
 import type { Trip, TripSummary } from "../types";
 
 /**
@@ -49,7 +53,28 @@ export async function startTrip(
   // Create the trip
   const trip = await dbCreateTrip(listId, userId, itemsTotal);
 
+  logger.info(
+    { pairId, tripId: trip.id, shopperId: trip.shopper.id, itemsTotal },
+    "Emitting TRIP_STARTED to pair room",
+  );
   emitToPair(pairId, WS_EVENTS.TRIP_STARTED, { trip });
+
+  // Send push notification to partner
+  const pair = await findPairById(pairId);
+  if (pair) {
+    const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
+    if (partnerId) {
+      const user = await findUserById(userId);
+      const shopperName = user?.name ?? "Your partner";
+      sendPushNotification(
+        partnerId,
+        "trip_started",
+        "Shopping trip started!",
+        `${shopperName} is heading to the store with ${itemsTotal} items`,
+        { trip_id: trip.id, list_id: listId },
+      );
+    }
+  }
 
   return trip;
 }
@@ -108,10 +133,10 @@ export async function endTrip(
     [tripId, trip.list_id],
   );
 
-  // Reset all checked items for the next trip (uncheck them)
+  // Soft-delete checked items (they've been bought — archived in trip history)
   await query(
     `UPDATE items
-     SET is_checked = false, checked_by = NULL, checked_at = NULL
+     SET deleted_at = NOW()
      WHERE list_id = $1
        AND is_checked = true
        AND deleted_at IS NULL`,
@@ -125,7 +150,28 @@ export async function endTrip(
     skipped_items: skippedItems,
   };
 
+  logger.info(
+    { pairId, tripId: summary.id, durationMinutes },
+    "Emitting TRIP_ENDED to pair room",
+  );
   emitToPair(pairId, WS_EVENTS.TRIP_ENDED, { trip: summary });
+
+  // Send push notification to partner
+  const pair = await findPairById(pairId);
+  if (pair) {
+    const partnerId = pair.user_a_id === _userId ? pair.user_b_id : pair.user_a_id;
+    if (partnerId) {
+      const user = await findUserById(_userId);
+      const shopperName = user?.name ?? "Your partner";
+      sendPushNotification(
+        partnerId,
+        "trip_completed",
+        "Shopping trip completed!",
+        `${shopperName} finished shopping in ${durationMinutes} min — ${summary.items_done} items bought`,
+        { trip_id: summary.id, list_id: trip.list_id },
+      );
+    }
+  }
 
   return summary;
 }

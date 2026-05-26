@@ -291,3 +291,25 @@ export async function countItemsByListId(listId: string): Promise<number> {
   );
   return parseInt(result.rows[0].count, 10);
 }
+
+/**
+ * Find existing non-deleted items in a list whose names match (case-insensitive).
+ * Returns the names that already exist.
+ */
+export async function findDuplicateNames(
+  listId: string,
+  names: string[],
+): Promise<string[]> {
+  if (names.length === 0) return [];
+
+  const lowerNames = names.map((n) => n.trim().toLowerCase());
+  const result = await query<{ name: string }>(
+    `SELECT DISTINCT LOWER(name) AS name
+     FROM items
+     WHERE list_id = $1
+       AND LOWER(name) = ANY($2)
+       AND deleted_at IS NULL`,
+    [listId, lowerNames],
+  );
+  return result.rows.map((r) => r.name);
+}

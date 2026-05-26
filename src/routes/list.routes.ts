@@ -16,7 +16,7 @@ router.get(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const lists = await getListsForPair(req.pairId!);
-      res.json({ lists });
+      res.json({ data: lists });
     } catch (err) {
       next(err);
     }
@@ -35,7 +35,7 @@ router.get(
     try {
       const listId = req.params.listId as string;
       const result = await getListWithItems(listId, req.pairId!);
-      res.json(result);
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }

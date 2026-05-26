@@ -25,8 +25,10 @@ router.post(
       const results = await syncService.processSync(userId, device_id, changes);
 
       res.json({
-        results,
-        server_timestamp: new Date().toISOString(),
+        data: {
+          results,
+          server_timestamp: new Date().toISOString(),
+        },
       });
     } catch (err) {
       next(err);

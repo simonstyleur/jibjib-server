@@ -17,6 +17,7 @@ const envSchema = z.object({
 
   MINIO_ENDPOINT: z.string().default("localhost"),
   MINIO_PORT: z.coerce.number().default(9000),
+  MINIO_USE_SSL: z.coerce.boolean().default(false),
   MINIO_ACCESS_KEY: z.string().default(""),
   MINIO_SECRET_KEY: z.string().default(""),
   MINIO_BUCKET: z.string().default("jibjib-media"),
@@ -55,6 +56,7 @@ export const config = {
   minio: {
     endpoint: parsed.data.MINIO_ENDPOINT,
     port: parsed.data.MINIO_PORT,
+    useSSL: parsed.data.MINIO_USE_SSL,
     accessKey: parsed.data.MINIO_ACCESS_KEY,
     secretKey: parsed.data.MINIO_SECRET_KEY,
     bucket: parsed.data.MINIO_BUCKET,

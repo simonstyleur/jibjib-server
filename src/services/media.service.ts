@@ -5,7 +5,7 @@ import { logger } from "../utils/logger";
 const minioClient = new MinioClient({
   endPoint: config.minio.endpoint,
   port: config.minio.port,
-  useSSL: config.env === "production",
+  useSSL: config.minio.useSSL,
   accessKey: config.minio.accessKey,
   secretKey: config.minio.secretKey,
 });
@@ -41,11 +41,20 @@ function mimeToExt(mimetype: string): string {
 }
 
 /**
+ * Build the base URL for the Minio endpoint (without trailing slash).
+ */
+function getBaseUrl(): string {
+  const protocol = config.minio.useSSL ? "https" : "http";
+  const defaultPort = config.minio.useSSL ? 443 : 80;
+  const portSuffix = config.minio.port === defaultPort ? "" : `:${config.minio.port}`;
+  return `${protocol}://${config.minio.endpoint}${portSuffix}`;
+}
+
+/**
  * Construct the public URL for a given object path.
  */
 export function getPublicUrl(objectPath: string): string {
-  const protocol = config.env === "production" ? "https" : "http";
-  return `${protocol}://${config.minio.endpoint}:${config.minio.port}/${BUCKET}/${objectPath}`;
+  return `${getBaseUrl()}/${BUCKET}/${objectPath}`;
 }
 
 /**
@@ -61,8 +70,7 @@ export async function uploadFile(
   await minioClient.putObject(bucket, objectPath, buffer, buffer.length, {
     "Content-Type": contentType,
   });
-  const protocol = config.env === "production" ? "https" : "http";
-  return `${protocol}://${config.minio.endpoint}:${config.minio.port}/${bucket}/${objectPath}`;
+  return `${getBaseUrl()}/${bucket}/${objectPath}`;
 }
 
 /**

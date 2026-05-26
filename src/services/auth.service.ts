@@ -1,5 +1,7 @@
 import { query } from "../db/pool";
 import { createUser } from "../db/queries/user.queries";
+import { createPair } from "../db/queries/pair.queries";
+import { createList } from "../db/queries/list.queries";
 import {
   generateTokenPair,
   verifyRefreshToken,
@@ -54,7 +56,7 @@ async function createSession(
  */
 export async function createAnonymousUser(
   data: AnonymousInput,
-): Promise<{ user: User; tokens: TokenPair }> {
+): Promise<{ user: User; tokens: TokenPair; pair: { id: string }; list: { id: string; name: string; is_active: boolean } }> {
   const user = await createUser({
     name: data.name,
     language: data.language,
@@ -77,9 +79,13 @@ export async function createAnonymousUser(
     refreshExpiresAt,
   );
 
-  logger.info({ userId: user.id }, "Anonymous user created");
+  // Create a solo pair + default list so the user can start adding items immediately
+  const pair = await createPair(user.id);
+  const list = await createList(pair.id);
 
-  return { user, tokens };
+  logger.info({ userId: user.id, pairId: pair.id, listId: list.id }, "Anonymous user created with default list");
+
+  return { user, tokens, pair, list };
 }
 
 /**

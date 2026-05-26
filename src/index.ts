@@ -50,7 +50,7 @@ const authRateLimit = rateLimit({
 // Rate limiting for general API (more generous)
 const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 120,
+  max: config.env === "development" ? 1000 : 120,
   keyPrefix: "api",
 });
 

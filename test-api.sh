@@ -149,8 +149,8 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /auth/refresh returns 200" "200" "$CODE"
 
-NEW_TOKEN_A=$(echo "$BODY" | json "d['data']['tokens']['access_token']")
-NEW_REFRESH_A=$(echo "$BODY" | json "d['data']['tokens']['refresh_token']")
+NEW_TOKEN_A=$(echo "$BODY" | json "d['data']['access_token']")
+NEW_REFRESH_A=$(echo "$BODY" | json "d['data']['refresh_token']")
 assert_not_empty "New access_token" "$NEW_TOKEN_A"
 assert_not_empty "New refresh_token" "$NEW_REFRESH_A"
 TOKEN_A="$NEW_TOKEN_A"
@@ -164,8 +164,8 @@ CODE=$(echo "$RESP" | tail -1)
 # Using new refresh token should work
 assert "Refresh with new token returns 200" "200" "$CODE"
 BODY=$(echo "$RESP" | sed '$d')
-TOKEN_A=$(echo "$BODY" | json "d['data']['tokens']['access_token']")
-REFRESH_A=$(echo "$BODY" | json "d['data']['tokens']['refresh_token']")
+TOKEN_A=$(echo "$BODY" | json "d['data']['access_token']")
+REFRESH_A=$(echo "$BODY" | json "d['data']['refresh_token']")
 
 # ────────────────────────────────────────────────────────────────────────────
 echo -e "\n${YELLOW}4. Auth — Protected Endpoints Without Token${NC}"
@@ -278,10 +278,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /pairing/join returns 200" "200" "$CODE"
 
-JOINED_PAIR_ID=$(echo "$BODY" | json "d['data']['pair']['id']")
+JOINED_PAIR_ID=$(echo "$BODY" | json "d['data']['id']")
 assert "Joined pair ID matches" "$PAIR_ID" "$JOINED_PAIR_ID"
 
-LIST_ID=$(echo "$BODY" | json "d['data']['list']['id']")
+LIST_ID=$(echo "$BODY" | json "d['data']['shared_list_id']")
 assert_not_empty "Default list ID" "$LIST_ID"
 
 # Verify User A now sees partner
@@ -295,15 +295,15 @@ assert "Alice's partner is Bob" "Bob" "$PARTNER_NAME"
 RESP=$(curl -s -X POST "$BASE/api/auth/refresh" \
   -H "Content-Type: application/json" \
   -d "{\"refresh_token\": \"$REFRESH_A\"}")
-TOKEN_A=$(echo "$RESP" | json "d['data']['tokens']['access_token']")
-REFRESH_A=$(echo "$RESP" | json "d['data']['tokens']['refresh_token']")
+TOKEN_A=$(echo "$RESP" | json "d['data']['access_token']")
+REFRESH_A=$(echo "$RESP" | json "d['data']['refresh_token']")
 
 # Refresh token for User B to pick up pair
 RESP=$(curl -s -X POST "$BASE/api/auth/refresh" \
   -H "Content-Type: application/json" \
   -d "{\"refresh_token\": \"$REFRESH_B\"}")
-TOKEN_B=$(echo "$RESP" | json "d['data']['tokens']['access_token']")
-REFRESH_B=$(echo "$RESP" | json "d['data']['tokens']['refresh_token']")
+TOKEN_B=$(echo "$RESP" | json "d['data']['access_token']")
+REFRESH_B=$(echo "$RESP" | json "d['data']['refresh_token']")
 
 # ────────────────────────────────────────────────────────────────────────────
 echo -e "\n${YELLOW}9. Lists — Get Lists${NC}"
@@ -314,10 +314,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET /lists returns 200" "200" "$CODE"
 
-LIST_COUNT=$(echo "$BODY" | json "len(d['lists'])")
+LIST_COUNT=$(echo "$BODY" | json "len(d['data'])")
 assert "Pair has 1 list" "1" "$LIST_COUNT"
 
-LIST_NAME=$(echo "$BODY" | json "d['lists'][0]['name']")
+LIST_NAME=$(echo "$BODY" | json "d['data'][0]['name']")
 assert "Default list name is Grocery" "Grocery" "$LIST_NAME"
 
 # Get list by ID
@@ -349,24 +349,24 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /lists/:id/items returns 201" "201" "$CODE"
 
-ITEMS_COUNT=$(echo "$BODY" | json "len(d['items'])")
+ITEMS_COUNT=$(echo "$BODY" | json "len(d['data'])")
 assert "3 items created" "3" "$ITEMS_COUNT"
 
-ITEM1_ID=$(echo "$BODY" | json "d['items'][0]['id']")
-ITEM2_ID=$(echo "$BODY" | json "d['items'][1]['id']")
-ITEM3_ID=$(echo "$BODY" | json "d['items'][2]['id']")
+ITEM1_ID=$(echo "$BODY" | json "d['data'][0]['id']")
+ITEM2_ID=$(echo "$BODY" | json "d['data'][1]['id']")
+ITEM3_ID=$(echo "$BODY" | json "d['data'][2]['id']")
 assert_not_empty "Item 1 ID" "$ITEM1_ID"
 
-ITEM1_NAME=$(echo "$BODY" | json "d['items'][0]['name']")
+ITEM1_NAME=$(echo "$BODY" | json "d['data'][0]['name']")
 assert "Item 1 name is Milk" "Milk" "$ITEM1_NAME"
 
-ITEM1_CAT=$(echo "$BODY" | json "d['items'][0]['category']")
+ITEM1_CAT=$(echo "$BODY" | json "d['data'][0]['category']")
 assert "Item 1 category is dairy" "dairy" "$ITEM1_CAT"
 
-ITEM1_QTY=$(echo "$BODY" | json "d['items'][0]['quantity']")
+ITEM1_QTY=$(echo "$BODY" | json "d['data'][0]['quantity']")
 assert "Item 1 quantity is 2x" "2x" "$ITEM1_QTY"
 
-ITEM1_CREATOR=$(echo "$BODY" | json "d['items'][0]['created_by']['name']")
+ITEM1_CREATOR=$(echo "$BODY" | json "d['data'][0]['created_by']['name']")
 assert "Item created by Alice" "Alice" "$ITEM1_CREATOR"
 
 # Validation: empty items array
@@ -388,10 +388,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "PATCH item returns 200" "200" "$CODE"
 
-UPDATED_NAME=$(echo "$BODY" | json "d['item']['name']")
+UPDATED_NAME=$(echo "$BODY" | json "d['data']['name']")
 assert "Updated name is Whole Milk" "Whole Milk" "$UPDATED_NAME"
 
-UPDATED_QTY=$(echo "$BODY" | json "d['item']['quantity']")
+UPDATED_QTY=$(echo "$BODY" | json "d['data']['quantity']")
 assert "Updated quantity is 3x" "3x" "$UPDATED_QTY"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -407,10 +407,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "Check item returns 200" "200" "$CODE"
 
-IS_CHECKED=$(echo "$BODY" | json "d['item']['is_checked']")
+IS_CHECKED=$(echo "$BODY" | json "d['data']['is_checked']")
 assert "Item is checked" "True" "$IS_CHECKED"
 
-CHECKED_BY=$(echo "$BODY" | json "d['item']['checked_by']['name']")
+CHECKED_BY=$(echo "$BODY" | json "d['data']['checked_by']['name']")
 assert "Checked by Bob" "Bob" "$CHECKED_BY"
 
 # Uncheck it
@@ -422,10 +422,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "Uncheck item returns 200" "200" "$CODE"
 
-IS_CHECKED=$(echo "$BODY" | json "d['item']['is_checked']")
+IS_CHECKED=$(echo "$BODY" | json "d['data']['is_checked']")
 assert "Item is unchecked" "False" "$IS_CHECKED"
 
-CHECKED_BY=$(echo "$BODY" | json "d['item']['checked_by']")
+CHECKED_BY=$(echo "$BODY" | json "d['data']['checked_by']")
 assert "checked_by is None after uncheck" "None" "$CHECKED_BY"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -437,10 +437,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "DELETE item returns 200" "200" "$CODE"
 
-DELETED_AT=$(echo "$BODY" | json "d['deleted_at']")
+DELETED_AT=$(echo "$BODY" | json "d['data']['deleted_at']")
 assert_not_empty "deleted_at timestamp" "$DELETED_AT"
 
-UNDO_UNTIL=$(echo "$BODY" | json "d['undo_until']")
+UNDO_UNTIL=$(echo "$BODY" | json "d['data']['undo_until']")
 assert_not_empty "undo_until timestamp" "$UNDO_UNTIL"
 
 # Undo the delete
@@ -450,7 +450,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST undo returns 200" "200" "$CODE"
 
-RESTORED_NAME=$(echo "$BODY" | json "d['item']['name']")
+RESTORED_NAME=$(echo "$BODY" | json "d['data']['name']")
 assert "Restored item name is Bread" "Bread" "$RESTORED_NAME"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -462,7 +462,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET list with items returns 200" "200" "$CODE"
 
-ITEM_COUNT=$(echo "$BODY" | json "len(d['items'])")
+ITEM_COUNT=$(echo "$BODY" | json "len(d['data']['items'])")
 assert "List has 3 items" "3" "$ITEM_COUNT"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -476,13 +476,13 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /trips/start returns 201" "201" "$CODE"
 
-TRIP_ID=$(echo "$BODY" | json "d['trip']['id']")
+TRIP_ID=$(echo "$BODY" | json "d['data']['id']")
 assert_not_empty "Trip ID" "$TRIP_ID"
 
-TRIP_STATUS=$(echo "$BODY" | json "d['trip']['status']")
+TRIP_STATUS=$(echo "$BODY" | json "d['data']['status']")
 assert "Trip status is active" "active" "$TRIP_STATUS"
 
-TRIP_TOTAL=$(echo "$BODY" | json "d['trip']['items_total']")
+TRIP_TOTAL=$(echo "$BODY" | json "d['data']['items_total']")
 assert "Trip items_total is 3" "3" "$TRIP_TOTAL"
 
 # Duplicate trip start should fail
@@ -502,10 +502,10 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET /trips/active returns 200" "200" "$CODE"
 
-ACTIVE_TRIP_ID=$(echo "$BODY" | json "d['trip']['id']")
+ACTIVE_TRIP_ID=$(echo "$BODY" | json "d['data']['id']")
 assert "Active trip ID matches" "$TRIP_ID" "$ACTIVE_TRIP_ID"
 
-SHOPPER_NAME=$(echo "$BODY" | json "d['trip']['shopper']['name']")
+SHOPPER_NAME=$(echo "$BODY" | json "d['data']['shopper']['name']")
 assert "Shopper is Alice" "Alice" "$SHOPPER_NAME"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -531,19 +531,19 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /trips/:id/end returns 200" "200" "$CODE"
 
-END_STATUS=$(echo "$BODY" | json "d['trip']['status']")
+END_STATUS=$(echo "$BODY" | json "d['data']['status']")
 assert "Trip status is completed" "completed" "$END_STATUS"
 
-DURATION=$(echo "$BODY" | json "d['trip']['duration_minutes']")
+DURATION=$(echo "$BODY" | json "d['data']['duration_minutes']")
 assert_not_empty "Duration minutes" "$DURATION"
 
-SKIPPED_COUNT=$(echo "$BODY" | json "len(d['trip']['skipped_items'])")
+SKIPPED_COUNT=$(echo "$BODY" | json "len(d['data']['skipped_items'])")
 assert "1 skipped item (Tomatoes)" "1" "$SKIPPED_COUNT"
 
 # Verify items were unchecked after trip end
 RESP=$(curl -s "$BASE/api/lists/$LIST_ID" \
   -H "Authorization: Bearer $TOKEN_A")
-CHECKED_COUNT=$(echo "$RESP" | json "sum(1 for i in d['items'] if i['is_checked'])")
+CHECKED_COUNT=$(echo "$RESP" | json "sum(1 for i in d['data']['items'] if i['is_checked'])")
 assert "All items unchecked after trip end" "0" "$CHECKED_COUNT"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -557,7 +557,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST message returns 201" "201" "$CODE"
 
-MSG_TEXT=$(echo "$BODY" | json "d['message']['text']")
+MSG_TEXT=$(echo "$BODY" | json "d['data']['text']")
 assert "Message text matches" "Get the organic one please!" "$MSG_TEXT"
 
 # User B sends a reply
@@ -573,7 +573,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET messages returns 200" "200" "$CODE"
 
-MSG_COUNT=$(echo "$BODY" | json "len(d['messages'])")
+MSG_COUNT=$(echo "$BODY" | json "len(d['data'])")
 assert "2 messages in thread" "2" "$MSG_COUNT"
 
 HAS_MORE=$(echo "$BODY" | json "d['has_more']")
@@ -591,7 +591,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET /notifications/preferences returns 200" "200" "$CODE"
 
-PREFS_COUNT=$(echo "$BODY" | json "len(d['preferences'])")
+PREFS_COUNT=$(echo "$BODY" | json "len(d['data'])")
 assert "8 notification preference types" "8" "$PREFS_COUNT"
 
 # Update a preference
@@ -611,7 +611,7 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "GET /common-items?q=tom returns 200" "200" "$CODE"
 
-CI_COUNT=$(echo "$BODY" | json "len(d['items'])")
+CI_COUNT=$(echo "$BODY" | json "len(d.get('data', d.get('items', [])))")
 TOTAL=$((TOTAL + 1))
 if [ "$CI_COUNT" -ge "1" ]; then
   echo -e "  ${GREEN}✓${NC} Common items search returned $CI_COUNT results"
@@ -643,15 +643,15 @@ CODE=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert "POST /sync returns 200" "200" "$CODE"
 
-SYNC_STATUS=$(echo "$BODY" | json "d['results'][0]['status']")
+SYNC_STATUS=$(echo "$BODY" | json "d['data']['results'][0]['status']")
 assert "Sync result status is applied" "applied" "$SYNC_STATUS"
 
-assert_not_empty "Server timestamp" "$(echo "$BODY" | json "d['server_timestamp']")"
+assert_not_empty "Server timestamp" "$(echo "$BODY" | json "d['data']['server_timestamp']")"
 
 # Verify item was actually updated
 RESP=$(curl -s "$BASE/api/lists/$LIST_ID" \
   -H "Authorization: Bearer $TOKEN_A")
-SYNCED_NAME=$(echo "$RESP" | json "[i['name'] for i in d['items'] if i['id'] == '$ITEM3_ID'][0]")
+SYNCED_NAME=$(echo "$RESP" | json "[i['name'] for i in d['data']['items'] if i['id'] == '$ITEM3_ID'][0]")
 assert "Synced item name is Cherry Tomatoes" "Cherry Tomatoes" "$SYNCED_NAME"
 
 # ────────────────────────────────────────────────────────────────────────────

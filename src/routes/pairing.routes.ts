@@ -3,6 +3,7 @@ import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { joinPairingSchema } from "../validators/pairing.schema";
 import * as pairingService from "../services/pairing.service";
+import { findPairedUser } from "../db/queries/pair.queries";
 
 const router = Router();
 
@@ -35,7 +36,17 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await pairingService.joinPairing(req.user!.id, req.body);
-      res.status(200).json({ data: result });
+      const partner = await findPairedUser(result.pair.id, req.user!.id);
+      res.status(200).json({
+        data: {
+          id: result.pair.id,
+          paired_with: partner
+            ? { id: partner.id, name: partner.name, avatar_url: partner.avatar_url }
+            : null,
+          paired_at: result.pair.paired_at,
+          shared_list_id: result.list.id,
+        },
+      });
     } catch (err) {
       next(err);
     }

@@ -107,7 +107,7 @@ router.post(
         photo_urls: updatedPhotos,
       });
 
-      res.status(201).json({ photo_url: photoUrl, photo_urls: updatedPhotos });
+      res.status(201).json({ data: { photo_url: photoUrl, photo_urls: updatedPhotos } });
     } catch (err) {
       next(err);
     }
@@ -165,7 +165,7 @@ router.delete(
         photo_urls: updatedPhotos,
       });
 
-      res.json({ photo_urls: updatedPhotos });
+      res.json({ data: { photo_urls: updatedPhotos } });
     } catch (err) {
       next(err);
     }
@@ -213,7 +213,7 @@ router.post(
         voice_url: voiceUrl,
       });
 
-      res.status(201).json({ voice_url: voiceUrl });
+      res.status(201).json({ data: { voice_url: voiceUrl } });
     } catch (err) {
       next(err);
     }

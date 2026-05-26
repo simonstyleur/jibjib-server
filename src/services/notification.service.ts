@@ -79,34 +79,24 @@ export async function sendPushNotification(
       return;
     }
 
-    // Get the user's OneSignal player ID
-    const userResult = await query<UserPlayerRow>(
-      `SELECT onesignal_player_id FROM users WHERE id = $1`,
-      [userId],
-    );
-
-    const playerId = userResult.rows[0]?.onesignal_player_id;
-    if (!playerId) {
-      logger.debug({ userId }, "No OneSignal player ID for user, skipping push");
-      return;
-    }
-
     // Verify OneSignal credentials are configured
     if (!config.onesignal.appId || !config.onesignal.apiKey) {
-      logger.warn("OneSignal credentials not configured, skipping push notification");
+      logger.debug("OneSignal credentials not configured, skipping push notification");
       return;
     }
 
-    // Send via OneSignal REST API
-    const response = await fetch("https://onesignal.com/api/v1/notifications", {
+    // Send via OneSignal REST API using external user ID
+    // (frontend calls OneSignal.login(userId) to link devices)
+    const response = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Basic ${config.onesignal.apiKey}`,
+        Authorization: `Key ${config.onesignal.apiKey}`,
       },
       body: JSON.stringify({
         app_id: config.onesignal.appId,
-        include_player_ids: [playerId],
+        target_channel: "push",
+        include_aliases: { external_id: [userId] },
         headings: { en: title },
         contents: { en: body },
         data: {

@@ -22,7 +22,7 @@ router.post(
 
       const trip = await startTrip(list_id, req.pairId!, req.user!.id);
 
-      res.status(201).json({ trip });
+      res.status(201).json({ data: trip });
     } catch (err) {
       next(err);
     }
@@ -43,13 +43,13 @@ router.get(
       const list_id = req.query.list_id as string | undefined;
 
       if (!list_id) {
-        res.json({ trip: null });
+        res.json({ data: null });
         return;
       }
 
       const trip = await getActiveTrip(list_id, req.pairId!);
 
-      res.json({ trip: trip ?? null });
+      res.json({ data: trip ?? null });
     } catch (err) {
       next(err);
     }
@@ -70,7 +70,7 @@ router.post(
 
       const trip = await endTrip(tripId, req.pairId!, req.user!.id);
 
-      res.json({ trip });
+      res.json({ data: trip });
     } catch (err) {
       next(err);
     }

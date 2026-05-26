@@ -9,8 +9,28 @@ import {
   deleteItem,
   undoDeleteItem,
 } from "../services/item.service";
+import { getListWithItems } from "../services/list.service";
 
 const router = Router();
+
+/**
+ * GET /lists/:listId/items
+ * Get all items for a list.
+ */
+router.get(
+  "/lists/:listId/items",
+  authenticate,
+  requirePair,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const listId = req.params.listId as string;
+      const result = await getListWithItems(listId, req.pairId!);
+      res.json({ data: result.items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /**
  * POST /lists/:listId/items
@@ -26,7 +46,7 @@ router.post(
       const listId = req.params.listId as string;
       const { items: inputItems } = req.body;
       const items = await addItems(listId, req.pairId!, req.user!.id, inputItems);
-      res.status(201).json({ items });
+      res.status(201).json({ data: items });
     } catch (err) {
       next(err);
     }
@@ -53,7 +73,7 @@ router.patch(
         req.user!.id,
         req.body,
       );
-      res.json({ item });
+      res.json({ data: item });
     } catch (err) {
       next(err);
     }
@@ -73,7 +93,7 @@ router.delete(
       const listId = req.params.listId as string;
       const itemId = req.params.itemId as string;
       const result = await deleteItem(itemId, listId, req.pairId!);
-      res.json(result);
+      res.json({ data: result });
     } catch (err) {
       next(err);
     }
@@ -93,7 +113,7 @@ router.post(
       const listId = req.params.listId as string;
       const itemId = req.params.itemId as string;
       const item = await undoDeleteItem(itemId, listId, req.pairId!);
-      res.json({ item });
+      res.json({ data: item });
     } catch (err) {
       next(err);
     }

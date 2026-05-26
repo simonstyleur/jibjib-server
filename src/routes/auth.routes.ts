@@ -33,6 +33,12 @@ router.post(
         data: {
           user: result.user,
           tokens: result.tokens,
+          pair_id: result.pair.id,
+          list: {
+            id: result.list.id,
+            name: result.list.name,
+            is_active: result.list.is_active,
+          },
         },
       });
     } catch (err) {
@@ -74,9 +80,7 @@ router.post(
       const result = await refreshTokens(refresh_token);
 
       res.status(200).json({
-        data: {
-          tokens: result.tokens,
-        },
+        data: result.tokens,
       });
     } catch (err) {
       next(err);

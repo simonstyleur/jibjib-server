@@ -36,7 +36,7 @@ router.get(
       const userId = req.user!.id;
       const preferences = await notificationService.getPreferences(userId);
 
-      res.json({ preferences });
+      res.json({ data: preferences });
     } catch (err) {
       next(err);
     }
@@ -58,7 +58,7 @@ router.patch(
 
       const updated = await notificationService.updatePreferences(userId, preferences);
 
-      res.json({ preferences: updated });
+      res.json({ data: updated });
     } catch (err) {
       next(err);
     }
