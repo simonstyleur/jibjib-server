@@ -4,7 +4,13 @@ import { logger } from "../utils/logger";
 
 export const redis = new Redis(config.redis.url, {
   lazyConnect: true,
-  maxRetriesPerRequest: 3,
+  // null disables MaxRetriesPerRequestError so transient Redis outages
+  // don't crash the backend process.
+  maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
+  retryStrategy(times) {
+    return Math.min(times * 1000, 30000);
+  },
 });
 
 let redisErrorLogged = false;

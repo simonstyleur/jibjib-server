@@ -51,10 +51,13 @@ export function initSocket(server: HttpServer): Server {
   let subErrorLogged = false;
 
   const pubClient = new Redis(config.redis.url, {
-    maxRetriesPerRequest: 3,
+    // null disables MaxRetriesPerRequestError so a Redis outage doesn't
+    // crash the backend process. The pub/sub clients will retry forever.
+    maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
     retryStrategy(times) {
-      if (times > 5) return null; // Stop retrying after 5 attempts
-      return Math.min(times * 1000, 5000);
+      // Exponential-ish backoff capped at 30s between attempts.
+      return Math.min(times * 1000, 30000);
     },
     lazyConnect: true,
   });
