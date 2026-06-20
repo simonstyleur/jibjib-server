@@ -124,13 +124,21 @@ export async function endTrip(
   // Get skipped items (unchecked items remaining)
   const skippedItems = await findSkippedItems(trip.list_id);
 
+  // Count checked items NOW, before they get soft-deleted, so we can both
+  // persist the snapshot AND surface the real count in the WS event + push.
+  // Previously items_done was updated in the DB but read from the pre-update
+  // endedTrip row, so the push always said "0 items bought."
+  const itemsDoneResult = await query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM items
+     WHERE list_id = $1 AND is_checked = true AND deleted_at IS NULL`,
+    [trip.list_id],
+  );
+  const itemsDone = itemsDoneResult.rows[0]?.count ?? 0;
+
   // Save checked items as trip snapshot before resetting
   await query(
-    `UPDATE trips SET items_done = (
-       SELECT COUNT(*)::int FROM items
-       WHERE list_id = $2 AND is_checked = true AND deleted_at IS NULL
-     ) WHERE id = $1`,
-    [tripId, trip.list_id],
+    `UPDATE trips SET items_done = $2 WHERE id = $1`,
+    [tripId, itemsDone],
   );
 
   // Soft-delete checked items (they've been bought — archived in trip history)
@@ -146,6 +154,7 @@ export async function endTrip(
   const summary: TripSummary = {
     ...endedTrip,
     ended_at: endedTrip.ended_at!,
+    items_done: itemsDone,
     duration_minutes: durationMinutes,
     skipped_items: skippedItems,
   };

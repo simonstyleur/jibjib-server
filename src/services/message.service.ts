@@ -5,8 +5,12 @@ import {
   createMessage as dbCreateMessage,
   findMessagesByItemId,
 } from "../db/queries/message.queries";
+import { findPairById } from "../db/queries/pair.queries";
+import { findUserById } from "../db/queries/user.queries";
 import { emitToPair } from "../socket/emitter";
+import { sendPushNotification } from "./notification.service";
 import { WS_EVENTS } from "../constants/events";
+import { logger } from "../utils/logger";
 import type { Message, MessageType } from "../types";
 
 /**
@@ -49,6 +53,38 @@ export async function sendMessage(
     list_id: listId,
     message,
   });
+
+  // Push the partner (sendPushNotification filters by item_message preference,
+  // so users who muted item messages won't be disturbed). Best-effort —
+  // failures must not block the message itself.
+  try {
+    const pair = await findPairById(pairId);
+    if (pair) {
+      const partnerId =
+        pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
+      if (partnerId) {
+        const [sender, item] = await Promise.all([
+          findUserById(userId),
+          findItemById(itemId),
+        ]);
+        const senderName = sender?.name ?? "Your partner";
+        const itemName = item?.name ?? "an item";
+        const body =
+          type === "text"
+            ? `${senderName}: ${text}`
+            : `${senderName} sent a sticker on ${itemName}`;
+        sendPushNotification(
+          partnerId,
+          "item_message",
+          itemName,
+          body,
+          { item_id: itemId, list_id: listId },
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err, itemId, pairId }, "Failed to send item-message push");
+  }
 
   return message;
 }
