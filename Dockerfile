@@ -11,5 +11,9 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY --from=builder /app/dist ./dist
+# SQL migration files — applied at boot by the migrate runner (see `npm start`).
+COPY sql ./sql
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+# `npm start` runs pending DB migrations, then launches the server. The runner is
+# idempotent + advisory-locked, so it is safe on every deploy/restart.
+CMD ["npm", "start"]

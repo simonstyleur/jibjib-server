@@ -66,7 +66,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
  */
 export async function findUserById(id: string): Promise<User | null> {
   const result = await query<UserRow>(
-    `SELECT * FROM users WHERE id = $1`,
+    `SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
 
@@ -83,7 +83,7 @@ export async function findUserByAuth(
   authId: string,
 ): Promise<User | null> {
   const result = await query<UserRow>(
-    `SELECT * FROM users WHERE auth_provider = $1 AND auth_id = $2`,
+    `SELECT * FROM users WHERE auth_provider = $1 AND auth_id = $2 AND deleted_at IS NULL`,
     [provider, authId],
   );
 
@@ -140,4 +140,25 @@ export async function updateUser(
  */
 export async function updateLastActive(id: string): Promise<void> {
   await query(`UPDATE users SET last_active_at = NOW() WHERE id = $1`, [id]);
+}
+
+/**
+ * Soft-delete a user: mark deleted_at and scrub personal data. The row is kept
+ * so foreign keys (trips, item history) stay intact, but the user can no longer
+ * authenticate (findUserById excludes deleted rows) and PII is removed. Clearing
+ * auth_id frees the (auth_provider, auth_id) unique constraint so a future
+ * sign-in with the same provider creates a fresh account.
+ */
+export async function softDeleteUser(id: string): Promise<void> {
+  await query(
+    `UPDATE users
+     SET deleted_at = NOW(),
+         name = 'Deleted user',
+         avatar_url = NULL,
+         auth_id = NULL,
+         onesignal_player_id = NULL,
+         updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [id],
+  );
 }

@@ -58,12 +58,14 @@ CREATE TABLE users (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_active_at  TIMESTAMPTZ,
+  deleted_at      TIMESTAMPTZ,                      -- Soft-delete marker (account deletion)
 
   CONSTRAINT uq_auth UNIQUE (auth_provider, auth_id)
 );
 
 CREATE INDEX idx_users_onesignal ON users (onesignal_player_id) WHERE onesignal_player_id IS NOT NULL;
 CREATE INDEX idx_users_last_active ON users (last_active_at);
+CREATE INDEX idx_users_active ON users (id) WHERE deleted_at IS NULL;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- PAIRS

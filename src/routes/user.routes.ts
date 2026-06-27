@@ -4,8 +4,9 @@ import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
 import { uploadAvatar } from "../middleware/upload.middleware";
 import { AppError } from "../middleware/error.middleware";
-import { updateUser } from "../db/queries/user.queries";
-import { findActivePairByUserId, findPairedUser } from "../db/queries/pair.queries";
+import { updateUser, softDeleteUser } from "../db/queries/user.queries";
+import { findActivePairByUserId, findPairedUser, archivePair } from "../db/queries/pair.queries";
+import { revokeAllSessionsForUser } from "../services/auth.service";
 import * as mediaService from "../services/media.service";
 import { MAX_USER_NAME_LENGTH } from "../constants/limits";
 
@@ -146,6 +147,35 @@ router.post(
       await updateUser(req.user!.id, { avatar_url: avatarUrl });
 
       res.json({ data: { avatar_url: avatarUrl } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * DELETE /user/me
+ * Soft-delete the authenticated user's account: archive any active pair (so the
+ * partner is unpaired), scrub PII + mark the user deleted, and revoke all
+ * sessions. Idempotent-ish; always returns 204.
+ */
+router.delete(
+  "/me",
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+
+      // Unpair: archive the active pair so the partner is no longer linked.
+      const pairRow = await findActivePairByUserId(userId);
+      if (pairRow) {
+        await archivePair(pairRow.id);
+      }
+
+      await softDeleteUser(userId);
+      await revokeAllSessionsForUser(userId);
+
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

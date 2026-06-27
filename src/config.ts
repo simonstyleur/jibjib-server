@@ -15,6 +15,9 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().default("dev-access-secret"),
   JWT_REFRESH_SECRET: z.string().default("dev-refresh-secret"),
 
+  // iOS bundle id — the expected `aud` claim of Apple identity tokens.
+  APPLE_BUNDLE_ID: z.string().default("app.jibjib.mobile"),
+
   MINIO_ENDPOINT: z.string().default("localhost"),
   MINIO_PORT: z.coerce.number().default(9000),
   MINIO_USE_SSL: z.coerce.boolean().default(false),
@@ -52,6 +55,9 @@ export const config = {
   jwt: {
     accessSecret: parsed.data.JWT_ACCESS_SECRET,
     refreshSecret: parsed.data.JWT_REFRESH_SECRET,
+  },
+  apple: {
+    bundleId: parsed.data.APPLE_BUNDLE_ID,
   },
   minio: {
     endpoint: parsed.data.MINIO_ENDPOINT,

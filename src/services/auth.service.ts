@@ -1,16 +1,17 @@
 import { query } from "../db/pool";
-import { createUser } from "../db/queries/user.queries";
-import { createPair } from "../db/queries/pair.queries";
-import { createList } from "../db/queries/list.queries";
+import { createUser, findUserByAuth } from "../db/queries/user.queries";
+import { createPair, findActivePairByUserId } from "../db/queries/pair.queries";
+import { createList, findListsByPairId } from "../db/queries/list.queries";
 import {
   generateTokenPair,
   verifyRefreshToken,
 } from "../utils/jwt";
+import { verifyAppleIdentityToken } from "./apple-auth.service";
 import { REFRESH_TOKEN_EXPIRY_DAYS } from "../constants/limits";
 import { AppError } from "../middleware/error.middleware";
 import { logger } from "../utils/logger";
 import type { User } from "../types";
-import type { AnonymousInput } from "../validators/auth.schema";
+import type { AnonymousInput, SocialInput } from "../validators/auth.schema";
 
 interface SessionRow {
   id: string;
@@ -89,6 +90,74 @@ export async function createAnonymousUser(
 }
 
 /**
+ * Social login. Verifies the provider identity token, finds or creates the user
+ * keyed by (provider, sub), and issues a token pair. Returning users reuse their
+ * existing pair + active list; first-time users get a solo pair + default list
+ * (mirrors anonymous sign-up). Currently Apple only; other providers 501 until
+ * their OAuth client is configured.
+ */
+export async function loginWithSocial(
+  data: SocialInput,
+): Promise<{ user: User; tokens: TokenPair; pair: { id: string }; list: { id: string; name: string; is_active: boolean } }> {
+  if (data.provider !== "apple") {
+    throw new AppError(
+      "NOT_IMPLEMENTED",
+      501,
+      `${data.provider} sign-in is not yet available.`,
+    );
+  }
+
+  const { sub } = await verifyAppleIdentityToken(data.id_token);
+
+  let user = await findUserByAuth("apple", sub);
+  let pairId: string;
+  let list: { id: string; name: string; is_active: boolean };
+
+  if (user) {
+    // Returning user — reuse their existing pair + active list.
+    const pair = await findActivePairByUserId(user.id);
+    if (pair) {
+      pairId = pair.id;
+      const lists = await findListsByPairId(pair.id);
+      const active = lists.find((l) => l.is_active) ?? lists[0];
+      list = active ?? (await createList(pair.id));
+    } else {
+      const newPair = await createPair(user.id);
+      pairId = newPair.id;
+      list = await createList(newPair.id);
+    }
+  } else {
+    // First sign-in — create the account, a solo pair, and a default list.
+    user = await createUser({
+      name: data.name?.trim() || "Friend",
+      language: "en",
+      auth_provider: "apple",
+      auth_id: sub,
+      device_os: data.device_os,
+      app_version: data.app_version,
+    });
+    const pair = await createPair(user.id);
+    pairId = pair.id;
+    list = await createList(pair.id);
+  }
+
+  const tokens = generateTokenPair(user.id);
+  const refreshExpiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  );
+  await createSession(user.id, tokens.refresh_token, data.device_id, refreshExpiresAt);
+
+  logger.info({ userId: user.id, provider: data.provider }, "Social user logged in");
+
+  return {
+    user,
+    tokens,
+    pair: { id: pairId },
+    list: { id: list.id, name: list.name, is_active: list.is_active },
+  };
+}
+
+/**
  * Rotate refresh tokens.  Verifies the incoming JWT, finds the matching active
  * session, revokes it, and issues a brand-new token pair with a fresh session.
  */
@@ -143,6 +212,20 @@ export async function refreshTokens(
   logger.info({ userId: payload.userId }, "Tokens refreshed");
 
   return { tokens };
+}
+
+/**
+ * Revoke every active session for a user (used on account deletion so all
+ * devices are signed out immediately).
+ */
+export async function revokeAllSessionsForUser(userId: string): Promise<void> {
+  await query(
+    `UPDATE sessions
+     SET revoked_at = NOW()
+     WHERE user_id = $1
+       AND revoked_at IS NULL`,
+    [userId],
+  );
 }
 
 /**

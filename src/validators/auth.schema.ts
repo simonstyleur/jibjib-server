@@ -12,6 +12,9 @@ export const anonymousSchema = z.object({
 export const socialSchema = z.object({
   provider: z.enum(["google", "apple", "facebook"]),
   id_token: z.string().min(1),
+  // Apple only returns the display name on the first authorization, so the app
+  // forwards it here for new-account creation. Optional (absent on later logins).
+  name: z.string().min(1).max(100).optional(),
   device_id: z.string().min(1),
   device_os: z.enum(["ios", "android"]),
   app_version: z.string().min(1),

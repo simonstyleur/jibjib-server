@@ -7,13 +7,13 @@ import {
   refreshSchema,
   logoutSchema,
 } from "../validators/auth.schema";
-import type { AnonymousInput, RefreshInput, LogoutInput } from "../validators/auth.schema";
+import type { AnonymousInput, SocialInput, RefreshInput, LogoutInput } from "../validators/auth.schema";
 import {
   createAnonymousUser,
+  loginWithSocial,
   refreshTokens,
   logout,
 } from "../services/auth.service";
-import { AppError } from "../middleware/error.middleware";
 
 const router = Router();
 
@@ -49,18 +49,29 @@ router.post(
 
 /**
  * POST /social
- * Social login (Google / Apple / Facebook). Stub for MVP.
+ * Social login. Verifies the provider identity token and returns the user +
+ * token pair (same shape as /anonymous). Apple is live; other providers 501.
  */
 router.post(
   "/social",
   validate(socialSchema),
-  async (_req: Request, _res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      throw new AppError(
-        "NOT_IMPLEMENTED",
-        501,
-        "Social authentication is not yet available",
-      );
+      const data = req.body as SocialInput;
+      const result = await loginWithSocial(data);
+
+      res.status(200).json({
+        data: {
+          user: result.user,
+          tokens: result.tokens,
+          pair_id: result.pair.id,
+          list: {
+            id: result.list.id,
+            name: result.list.name,
+            is_active: result.list.is_active,
+          },
+        },
+      });
     } catch (err) {
       next(err);
     }
