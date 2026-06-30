@@ -7,6 +7,7 @@ import { AppError } from "../middleware/error.middleware";
 import { updateUser, softDeleteUser } from "../db/queries/user.queries";
 import { findActivePairByUserId, findPairedUser, archivePair } from "../db/queries/pair.queries";
 import { revokeAllSessionsForUser } from "../services/auth.service";
+import { ensureSoloPairAndList } from "../services/pairing.service";
 import * as mediaService from "../services/media.service";
 import { MAX_USER_NAME_LENGTH } from "../constants/limits";
 
@@ -31,22 +32,21 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = req.user!;
-      let pair: { id: string; paired_with: { id: string; name: string; avatar_url: string | null } | null; paired_at: string | null } | null = null;
 
-      if (req.pairId) {
-        const pairRow = await findActivePairByUserId(user.id);
-        const partner = await findPairedUser(req.pairId, user.id);
+      // Guarantee an active pair + list. Self-heals a user who was unpaired
+      // remotely (their partner left) by lazily provisioning a solo pair+list.
+      const { pair: activePair } = await ensureSoloPairAndList(user.id);
+      const partner = activePair.user_b_id
+        ? await findPairedUser(activePair.id, user.id)
+        : null;
 
-        if (pairRow) {
-          pair = {
-            id: pairRow.id,
-            paired_with: partner
-              ? { id: partner.id, name: partner.name, avatar_url: partner.avatar_url }
-              : null,
-            paired_at: pairRow.paired_at,
-          };
-        }
-      }
+      const pair = {
+        id: activePair.id,
+        paired_with: partner
+          ? { id: partner.id, name: partner.name, avatar_url: partner.avatar_url }
+          : null,
+        paired_at: activePair.paired_at,
+      };
 
       res.json({
         data: {

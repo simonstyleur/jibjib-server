@@ -226,10 +226,48 @@ export async function refreshQr(userId: string): Promise<PairingToken> {
 }
 
 /**
- * Unpair (archive) the user's current pair.
- * Revokes all active tokens.
+ * Guarantee the user has an active pair + a list. Returns the existing active
+ * pair/list, or lazily provisions a fresh solo pair + default list if they have
+ * none. This is how a partner "self-heals" after the other person unpairs them
+ * remotely: their next /api/user/me (or /lists) call lands them on a working
+ * solo list instead of an empty, pair-less state.
  */
-export async function unpair(userId: string): Promise<{ archived_at: string }> {
+export async function ensureSoloPairAndList(
+  userId: string,
+): Promise<{ pair: pairQueries.PairRow; list: listQueries.ListRow }> {
+  let pair = await pairQueries.findActivePairByUserId(userId);
+  if (!pair) {
+    try {
+      pair = await pairQueries.createPair(userId);
+    } catch {
+      // A concurrent request likely created it first — re-read.
+      pair = await pairQueries.findActivePairByUserId(userId);
+    }
+    if (!pair) {
+      throw new AppError("INTERNAL_ERROR", 500, "Could not provision a pair.");
+    }
+  }
+
+  let lists = await listQueries.findListsByPairId(pair.id);
+  if (lists.length === 0) {
+    await listQueries.createList(pair.id);
+    lists = await listQueries.findListsByPairId(pair.id);
+  }
+  const list = lists.find((l) => l.is_active) ?? lists[0];
+  return { pair, list };
+}
+
+/**
+ * Unpair (archive) the user's current pair, revoke its tokens, and reprovision a
+ * fresh solo pair + default list so the leaving user keeps a working list. The
+ * partner is unpaired remotely and self-heals via ensureSoloPairAndList on their
+ * next /api/user/me.
+ */
+export async function unpair(userId: string): Promise<{
+  archived_at: string;
+  pair_id: string;
+  list: { id: string; name: string; is_active: boolean };
+}> {
   const pair = await pairQueries.findActivePairByUserId(userId);
   if (!pair) {
     throw new AppError("NOT_FOUND", 404, "No active pairing found.");
@@ -241,5 +279,16 @@ export async function unpair(userId: string): Promise<{ archived_at: string }> {
   // 2. Archive the pair
   const archived = await pairQueries.archivePair(pair.id);
 
-  return { archived_at: archived.archived_at! };
+  // 3. Reprovision a solo pair + default list for the leaving user.
+  const fresh = await ensureSoloPairAndList(userId);
+
+  return {
+    archived_at: archived.archived_at!,
+    pair_id: fresh.pair.id,
+    list: {
+      id: fresh.list.id,
+      name: fresh.list.name,
+      is_active: fresh.list.is_active,
+    },
+  };
 }
