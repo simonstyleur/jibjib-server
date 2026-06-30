@@ -143,6 +143,26 @@ export async function updateLastActive(id: string): Promise<void> {
 }
 
 /**
+ * Attach a social auth provider to an existing (typically anonymous) user, so
+ * they can recover the account after a reinstall by signing in with it.
+ */
+export async function linkAuthProvider(
+  id: string,
+  provider: "google" | "apple" | "facebook",
+  authId: string,
+): Promise<User | null> {
+  const result = await query<UserRow>(
+    `UPDATE users
+     SET auth_provider = $2, auth_id = $3, updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING *`,
+    [id, provider, authId],
+  );
+  if (result.rows.length === 0) return null;
+  return toUser(result.rows[0]);
+}
+
+/**
  * Soft-delete a user: mark deleted_at and scrub personal data. The row is kept
  * so foreign keys (trips, item history) stay intact, but the user can no longer
  * authenticate (findUserById excludes deleted rows) and PII is removed. Clearing

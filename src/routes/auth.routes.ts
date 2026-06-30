@@ -4,13 +4,15 @@ import { authenticate } from "../middleware/auth.middleware";
 import {
   anonymousSchema,
   socialSchema,
+  linkSchema,
   refreshSchema,
   logoutSchema,
 } from "../validators/auth.schema";
-import type { AnonymousInput, SocialInput, RefreshInput, LogoutInput } from "../validators/auth.schema";
+import type { AnonymousInput, SocialInput, LinkInput, RefreshInput, LogoutInput } from "../validators/auth.schema";
 import {
   createAnonymousUser,
   loginWithSocial,
+  linkSocialAccount,
   refreshTokens,
   logout,
 } from "../services/auth.service";
@@ -72,6 +74,25 @@ router.post(
           },
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /link
+ * Attach a social provider to the authenticated user (anonymous → recoverable).
+ */
+router.post(
+  "/link",
+  authenticate,
+  validate(linkSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = req.body as LinkInput;
+      const user = await linkSocialAccount(req.user!.id, data);
+      res.status(200).json({ data: { user } });
     } catch (err) {
       next(err);
     }

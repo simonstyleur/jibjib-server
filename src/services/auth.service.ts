@@ -1,5 +1,5 @@
 import { query } from "../db/pool";
-import { createUser, findUserByAuth } from "../db/queries/user.queries";
+import { createUser, findUserByAuth, linkAuthProvider } from "../db/queries/user.queries";
 import { createPair, findActivePairByUserId } from "../db/queries/pair.queries";
 import { createList, findListsByPairId } from "../db/queries/list.queries";
 import {
@@ -11,7 +11,7 @@ import { REFRESH_TOKEN_EXPIRY_DAYS } from "../constants/limits";
 import { AppError } from "../middleware/error.middleware";
 import { logger } from "../utils/logger";
 import type { User } from "../types";
-import type { AnonymousInput, SocialInput } from "../validators/auth.schema";
+import type { AnonymousInput, SocialInput, LinkInput } from "../validators/auth.schema";
 
 interface SessionRow {
   id: string;
@@ -155,6 +155,45 @@ export async function loginWithSocial(
     pair: { id: pairId },
     list: { id: list.id, name: list.name, is_active: list.is_active },
   };
+}
+
+/**
+ * Link a social provider to the currently-authenticated (typically anonymous)
+ * user, so they can recover this account after a reinstall. Fails with 409 if
+ * the social identity is already attached to a different account.
+ */
+export async function linkSocialAccount(
+  userId: string,
+  data: LinkInput,
+): Promise<User> {
+  if (data.provider !== "apple") {
+    throw new AppError(
+      "NOT_IMPLEMENTED",
+      501,
+      `${data.provider} linking is not yet available.`,
+    );
+  }
+
+  const { sub } = await verifyAppleIdentityToken(data.id_token);
+
+  const existing = await findUserByAuth("apple", sub);
+  if (existing && existing.id !== userId) {
+    throw new AppError(
+      "ALREADY_LINKED",
+      409,
+      "This Apple ID is already linked to another account.",
+    );
+  }
+  if (existing && existing.id === userId) {
+    // Already linked to this account — no-op.
+    return existing;
+  }
+
+  const updated = await linkAuthProvider(userId, "apple", sub);
+  if (!updated) {
+    throw new AppError("NOT_FOUND", 404, "User not found.");
+  }
+  return updated;
 }
 
 /**
