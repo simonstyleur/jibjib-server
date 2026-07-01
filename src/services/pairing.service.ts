@@ -186,6 +186,19 @@ export async function joinPairing(
     { pair_id: completedPair.id },
   );
 
+  // Notify the creator in real time so their pairing sheet auto-advances to the
+  // success screen. The creator is in room pair:${completedPair.id}; the joiner
+  // is still in their old (archived solo) room, so this reaches only the creator.
+  // Payload matches the /join REST response the client handler expects.
+  emitToPair(completedPair.id, WS_EVENTS.PAIR_COMPLETED, {
+    id: completedPair.id,
+    paired_with: joiner
+      ? { id: joiner.id, name: joiner.name, avatar_url: joiner.avatar_url }
+      : null,
+    paired_at: completedPair.paired_at,
+    shared_list_id: list?.id,
+  });
+
   return { pair: completedPair, list };
 }
 
