@@ -39,12 +39,21 @@ export async function startTrip(
     );
   }
 
-  // Count unchecked items as the trip total
+  // Start every trip fresh: clear any lingering checked state from a prior
+  // (possibly failed or abandoned) trip, so items never show up pre-marked as
+  // done. Unchecked items carry over; a new run starts with nothing checked.
+  await query(
+    `UPDATE items
+     SET is_checked = false, checked_by = NULL, checked_at = NULL
+     WHERE list_id = $1 AND is_checked = true AND deleted_at IS NULL`,
+    [listId],
+  );
+
+  // Trip total = all remaining (now-unchecked) items on the list.
   const countResult = await query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM items
      WHERE list_id = $1
-       AND is_checked = false
        AND deleted_at IS NULL`,
     [listId],
   );
