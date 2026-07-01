@@ -130,7 +130,12 @@ export async function endTrip(
 ): Promise<Trip> {
   const result = await query<TripRow>(
     `UPDATE trips t
-     SET status = $2, ended_at = NOW()
+     SET status = $2,
+         ended_at = NOW(),
+         -- Keep items_done <= items_total + items_added_during (chk_items): if
+         -- more items were bought than tracked (e.g. one added mid-trip without
+         -- the counter bumping), raise items_total to cover them.
+         items_total = GREATEST(t.items_total, t.items_done - t.items_added_during)
      FROM users u
      WHERE t.id = $1 AND u.id = t.shopper_id
      RETURNING

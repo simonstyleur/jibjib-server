@@ -135,9 +135,14 @@ export async function endTrip(
   );
   const itemsDone = itemsDoneResult.rows[0]?.count ?? 0;
 
-  // Save checked items as trip snapshot before resetting
+  // Save checked items as trip snapshot before resetting. Raise items_total if
+  // needed so items_done <= items_total + items_added_during (chk_items) holds
+  // even when more items were bought than the trip started with.
   await query(
-    `UPDATE trips SET items_done = $2 WHERE id = $1`,
+    `UPDATE trips
+     SET items_done = $2,
+         items_total = GREATEST(items_total, $2 - items_added_during)
+     WHERE id = $1`,
     [tripId, itemsDone],
   );
 
