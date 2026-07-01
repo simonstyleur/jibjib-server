@@ -6,7 +6,7 @@ import { findUserById } from "../db/queries/user.queries";
 import { generateSlug } from "../utils/slug";
 import { generatePairingCode } from "../utils/pairing-code";
 import { sendPushNotification } from "./notification.service";
-import { emitToPair } from "../socket/emitter";
+import { emitToUser } from "../socket/emitter";
 import { WS_EVENTS } from "../constants/events";
 import {
   QR_EXPIRY_MINUTES,
@@ -187,10 +187,11 @@ export async function joinPairing(
   );
 
   // Notify the creator in real time so their pairing sheet auto-advances to the
-  // success screen. The creator is in room pair:${completedPair.id}; the joiner
-  // is still in their old (archived solo) room, so this reaches only the creator.
+  // success screen. Target the creator's stable user room (not the pair room):
+  // a socket only joins pair:${id} for its active pair at CONNECT time, so after
+  // any unpair/re-pair churn the pair room can be stale — user:${id} never is.
   // Payload matches the /join REST response the client handler expects.
-  emitToPair(completedPair.id, WS_EVENTS.PAIR_COMPLETED, {
+  emitToUser(completedPair.user_a_id, WS_EVENTS.PAIR_COMPLETED, {
     id: completedPair.id,
     paired_with: joiner
       ? { id: joiner.id, name: joiner.name, avatar_url: joiner.avatar_url }
@@ -291,10 +292,13 @@ export async function unpair(userId: string): Promise<{
   // 1. Revoke all tokens
   await pairingTokenQueries.revokeByPairId(pair.id);
 
-  // 2. Notify the partner in real time (they're still in the old pair's socket
-  // room) so their app clears the pairing immediately instead of waiting for
-  // their next /api/user/me self-heal.
-  emitToPair(pair.id, WS_EVENTS.PAIR_REMOVED, { pair_id: pair.id, removed_by: userId });
+  // 2. Notify the partner in real time so their app clears the pairing
+  // immediately instead of waiting for their next /api/user/me self-heal. Target
+  // the partner's stable user room (pair rooms can be stale after churn).
+  const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
+  if (partnerId) {
+    emitToUser(partnerId, WS_EVENTS.PAIR_REMOVED, { pair_id: pair.id, removed_by: userId });
+  }
 
   // 3. Archive the pair
   const archived = await pairQueries.archivePair(pair.id);
