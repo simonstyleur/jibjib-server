@@ -159,6 +159,23 @@ export async function endTrip(
 }
 
 /**
+ * Bump items_added_during for the active trip on a list. No-op if there is no
+ * active trip (0 rows). Keeps the trip's counts consistent when items are added
+ * mid-trip so items_done can legitimately exceed the original items_total.
+ */
+export async function incrementItemsAddedDuring(
+  listId: string,
+  count: number,
+): Promise<void> {
+  await query(
+    `UPDATE trips
+     SET items_added_during = items_added_during + $2
+     WHERE list_id = $1 AND status = 'active'`,
+    [listId, count],
+  );
+}
+
+/**
  * Update trip progress counters.
  */
 export async function updateTripProgress(

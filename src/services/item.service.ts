@@ -11,6 +11,7 @@ import {
 import type { ItemRow } from "../db/queries/item.queries";
 import { findPairById } from "../db/queries/pair.queries";
 import { findUserById } from "../db/queries/user.queries";
+import { incrementItemsAddedDuring } from "../db/queries/trip.queries";
 import { AppError } from "../middleware/error.middleware";
 import { MAX_ITEMS_PER_LIST, UNDO_WINDOW_SECONDS } from "../constants/limits";
 import { emitToPair } from "../socket/emitter";
@@ -89,6 +90,10 @@ export async function addItems(
 
   const rows = await dbCreateItems(listId, uniqueItems, userId);
   const created = rows.map(toItem);
+
+  // If a trip is active on this list, count these as added-during-trip so the
+  // trip's counters stay consistent (no-op when there's no active trip).
+  await incrementItemsAddedDuring(listId, created.length);
 
   emitToPair(pairId, WS_EVENTS.ITEM_ADDED, {
     list_id: listId,
