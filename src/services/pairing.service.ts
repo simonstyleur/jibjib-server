@@ -6,6 +6,8 @@ import { findUserById } from "../db/queries/user.queries";
 import { generateSlug } from "../utils/slug";
 import { generatePairingCode } from "../utils/pairing-code";
 import { sendPushNotification } from "./notification.service";
+import { emitToPair } from "../socket/emitter";
+import { WS_EVENTS } from "../constants/events";
 import {
   QR_EXPIRY_MINUTES,
   CODE_EXPIRY_MINUTES,
@@ -276,10 +278,15 @@ export async function unpair(userId: string): Promise<{
   // 1. Revoke all tokens
   await pairingTokenQueries.revokeByPairId(pair.id);
 
-  // 2. Archive the pair
+  // 2. Notify the partner in real time (they're still in the old pair's socket
+  // room) so their app clears the pairing immediately instead of waiting for
+  // their next /api/user/me self-heal.
+  emitToPair(pair.id, WS_EVENTS.PAIR_REMOVED, { pair_id: pair.id, removed_by: userId });
+
+  // 3. Archive the pair
   const archived = await pairQueries.archivePair(pair.id);
 
-  // 3. Reprovision a solo pair + default list for the leaving user.
+  // 4. Reprovision a solo pair + default list for the leaving user.
   const fresh = await ensureSoloPairAndList(userId);
 
   return {

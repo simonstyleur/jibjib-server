@@ -4,6 +4,7 @@ export const WS_EVENTS = {
   PAIR_USER_ONLINE: "pair:user_online",
   PAIR_USER_OFFLINE: "pair:user_offline",
   PAIR_COMPLETED: "pair:completed",
+  PAIR_REMOVED: "pair:removed",
 
   ITEM_ADDED: "item:added",
   ITEM_UPDATED: "item:updated",
