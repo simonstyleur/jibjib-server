@@ -38,7 +38,10 @@ function buildPairingTokenResponse(
       expires_at: qrExpiresAt.toISOString(),
     },
     invite_link: {
-      url: `https://jibjib.indiecodes.com/join/${row.slug}`,
+      // Must stay in the jibjib.shop/pair/* shape: that path is registered in
+      // the AASA file (universal links) and parsed by the app's deeplink
+      // service. Anything else opens as a dead web page instead of the app.
+      url: `https://jibjib.shop/pair/${row.slug}`,
       slug: row.slug,
       expires_at: inviteExpiresAt.toISOString(),
     },
