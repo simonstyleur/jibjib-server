@@ -100,7 +100,7 @@ CREATE TABLE pairing_tokens (
   pair_id         UUID NOT NULL REFERENCES pairs(id) ON DELETE CASCADE,
   token           UUID NOT NULL DEFAULT gen_random_uuid(),  -- For link: jibjib.shop/pair/{slug}
   slug            VARCHAR(8) NOT NULL,              -- Short URL slug (e.g., 'X7k9mQ')
-  code            VARCHAR(7) NOT NULL,              -- Manual code (e.g., 'JIB-X7K')
+  code            VARCHAR(12) NOT NULL,             -- Manual code (e.g., 'JIB-X7KM2Q')
   method          pairing_method NOT NULL,
   created_by      UUID NOT NULL REFERENCES users(id),
   expires_at      TIMESTAMPTZ NOT NULL,
