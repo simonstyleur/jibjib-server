@@ -1,11 +1,22 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { authenticate } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate.middleware";
+import { rateLimit } from "../middleware/rate-limit.middleware";
 import { joinPairingSchema } from "../validators/pairing.schema";
 import * as pairingService from "../services/pairing.service";
 import { findPairedUser } from "../db/queries/pair.queries";
 
 const router = Router();
+
+// Strict limiter for join attempts. Runs BEFORE authenticate, so req.user is
+// unset and the limiter keys by IP — rotating anonymous accounts doesn't buy
+// an attacker extra guesses. 10 attempts / 15 min makes brute-forcing the
+// 32^6 code space (or even a short-lived QR/slug) a non-starter.
+const joinRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyPrefix: "pairjoin",
+});
 
 /**
  * POST /pairing/create
@@ -31,6 +42,7 @@ router.post(
  */
 router.post(
   "/join",
+  joinRateLimit,
   authenticate,
   validate(joinPairingSchema),
   async (req: Request, res: Response, next: NextFunction) => {

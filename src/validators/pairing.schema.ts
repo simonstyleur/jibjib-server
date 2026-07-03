@@ -8,7 +8,7 @@ export const joinPairingSchema = z
   .object({
     token: z.string().uuid().optional(),
     slug: z.string().min(1).max(16).optional(),
-    code: z.string().min(1).max(7).optional(),
+    code: z.string().min(1).max(10).optional(),
   })
   .refine((data) => data.token || data.slug || data.code, {
     message: "At least one of token, slug, or code must be provided",
