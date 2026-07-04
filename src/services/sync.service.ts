@@ -7,13 +7,20 @@ import { logger } from "../utils/logger";
  * Process a batch of sync changes from a client device.
  *
  * For each change:
- * 1. Record it in the sync_queue
- * 2. Apply the change to the relevant entity (item or message)
- * 3. Detect and resolve conflicts using Last-Writer-Wins (LWW) by timestamp
- * 4. Return a SyncResult for each change
+ * 1. Verify it targets the caller's own active list (never trust client ids)
+ * 2. Record it in the sync_queue
+ * 3. Apply the change to the relevant entity (item or message)
+ * 4. Detect and resolve conflicts using Last-Writer-Wins (LWW) by timestamp
+ * 5. Return a SyncResult for each change
+ *
+ * Each change runs inside its own SAVEPOINT: without one, the first failed
+ * statement aborts the whole transaction — every later query throws 25P02 and
+ * the final COMMIT silently rolls back, so changes already reported "applied"
+ * were never persisted while the client dequeued them.
  */
 export async function processSync(
   userId: string,
+  pairId: string,
   deviceId: string,
   changes: SyncChange[],
 ): Promise<SyncResult[]> {
@@ -23,11 +30,32 @@ export async function processSync(
   try {
     await client.query("BEGIN");
 
+    // The only list this batch may touch. Resolved server-side from the
+    // caller's pair — payload.list_id / entity ids are cross-checked against
+    // it, otherwise any authenticated user could mutate any list by UUID.
+    const listResult = await client.query<{ id: string }>(
+      `SELECT id FROM lists
+       WHERE pair_id = $1 AND is_active = true AND is_archived = false
+       ORDER BY created_at DESC NULLS LAST
+       LIMIT 1`,
+      [pairId],
+    );
+    const ownListId = listResult.rows[0]?.id ?? null;
+
     for (const change of changes) {
       try {
-        const result = await processSingleChange(userId, deviceId, change, client);
+        await client.query("SAVEPOINT sync_change");
+        const result = await processSingleChange(
+          userId,
+          ownListId,
+          deviceId,
+          change,
+          client,
+        );
+        await client.query("RELEASE SAVEPOINT sync_change");
         results.push(result);
       } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT sync_change");
         logger.error(
           { err, change, userId },
           "Failed to process sync change",
@@ -52,15 +80,61 @@ export async function processSync(
 }
 
 /**
+ * True if the item exists and belongs to the given list.
+ * Soft-deleted items still "belong" — deletes/undos need to target them.
+ */
+async function itemBelongsToList(
+  itemId: string,
+  listId: string | null,
+  client: Awaited<ReturnType<typeof getClient>>,
+): Promise<boolean> {
+  if (!listId) return false;
+  const result = await client.query<{ id: string }>(
+    `SELECT id FROM items WHERE id = $1 AND list_id = $2`,
+    [itemId, listId],
+  );
+  return result.rows.length > 0;
+}
+
+/**
  * Process a single sync change within an existing transaction.
+ * `ownListId` is the caller's active list — the only list a change may touch.
  */
 async function processSingleChange(
   userId: string,
+  ownListId: string | null,
   deviceId: string,
   change: SyncChange,
   client: Awaited<ReturnType<typeof getClient>>,
 ): Promise<SyncResult> {
   const { operation, entity_type, entity_id, payload, client_timestamp } = change;
+
+  const rejected: SyncResult = {
+    client_entity_id: entity_id,
+    server_entity_id: entity_id,
+    status: "rejected",
+  };
+
+  // Ownership gate. Adds must target the caller's own list; every other item
+  // op must reference an item already on it. Messages must target such an
+  // item via payload.item_id. Rejected changes are dequeued by the client, so
+  // stale post-unpair payloads drain without ever writing.
+  if (entity_type === "item") {
+    if (operation === "add") {
+      if (!ownListId || payload.list_id !== ownListId) return rejected;
+    } else if (!(await itemBelongsToList(entity_id, ownListId, client))) {
+      return rejected;
+    }
+  } else if (entity_type === "message") {
+    if (
+      typeof payload.item_id !== "string" ||
+      !(await itemBelongsToList(payload.item_id, ownListId, client))
+    ) {
+      return rejected;
+    }
+  } else {
+    return rejected;
+  }
 
   // Record the change in the sync queue
   await syncQueries.createSyncEntry(
@@ -82,15 +156,7 @@ async function processSingleChange(
     return processItemChange(userId, operation, entity_id, payload, client_timestamp, otherConflicts, client);
   }
 
-  if (entity_type === "message") {
-    return processMessageChange(userId, operation, entity_id, payload, client);
-  }
-
-  return {
-    client_entity_id: entity_id,
-    server_entity_id: entity_id,
-    status: "rejected",
-  };
+  return processMessageChange(userId, operation, entity_id, payload, client);
 }
 
 /**
@@ -107,10 +173,15 @@ async function processItemChange(
 ): Promise<SyncResult> {
   switch (operation) {
     case "add": {
+      // On id conflict with a soft-deleted row, restore it instead of no-op:
+      // this is the offline "delete then undo" path — the queued delete
+      // flushed first, and this add must bring the item back (with its
+      // photos/messages), not silently vanish as already_applied.
       const result = await client.query(
         `INSERT INTO items (id, list_id, name, category, quantity, position, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (id) DO NOTHING
+         ON CONFLICT (id) DO UPDATE SET deleted_at = NULL
+           WHERE items.deleted_at IS NOT NULL
          RETURNING id`,
         [
           entityId,
@@ -231,7 +302,7 @@ async function processItemChange(
          SET is_checked = $2,
              checked_by = CASE WHEN $2 THEN $3 ELSE NULL END,
              checked_at = CASE WHEN $2 THEN NOW() ELSE NULL END
-         WHERE id = $1`,
+         WHERE id = $1 AND deleted_at IS NULL`,
         [entityId, isChecked, userId],
       );
 

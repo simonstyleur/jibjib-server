@@ -6,7 +6,10 @@ import { uploadAvatar } from "../middleware/upload.middleware";
 import { AppError } from "../middleware/error.middleware";
 import { updateUser, softDeleteUser } from "../db/queries/user.queries";
 import { findActivePairByUserId, findPairedUser, archivePair } from "../db/queries/pair.queries";
+import { revokeByPairId as revokePairingTokensByPairId } from "../db/queries/pairing-token.queries";
 import { revokeAllSessionsForUser } from "../services/auth.service";
+import { emitToUser } from "../socket/emitter";
+import { WS_EVENTS } from "../constants/events";
 import { ensureSoloPairAndList } from "../services/pairing.service";
 import * as mediaService from "../services/media.service";
 import { MAX_USER_NAME_LENGTH } from "../constants/limits";
@@ -167,9 +170,22 @@ router.delete(
       const userId = req.user!.id;
 
       // Unpair: archive the active pair so the partner is no longer linked.
+      // Revoke its pairing tokens too — otherwise a deleted user's invite
+      // stays joinable and the joiner ends up "paired" with a ghost. Notify
+      // the partner in real time (after the archive, mirroring unpair) so
+      // their app clears the pairing instead of writing to a dead list.
       const pairRow = await findActivePairByUserId(userId);
       if (pairRow) {
+        await revokePairingTokensByPairId(pairRow.id);
         await archivePair(pairRow.id);
+        const partnerId =
+          pairRow.user_a_id === userId ? pairRow.user_b_id : pairRow.user_a_id;
+        if (partnerId) {
+          emitToUser(partnerId, WS_EVENTS.PAIR_REMOVED, {
+            pair_id: pairRow.id,
+            removed_by: userId,
+          });
+        }
       }
 
       await softDeleteUser(userId);

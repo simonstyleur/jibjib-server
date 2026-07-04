@@ -69,23 +69,23 @@ export async function findPairedUser(
 }
 
 /**
- * Complete a pair by setting user_b, status to 'active', and paired_at.
+ * Complete a pair by setting user_b and paired_at.
+ * Guarded: only fills an empty seat on a live pair, so two concurrent joiners
+ * can't both "win" — the second UPDATE matches zero rows. Returns null when
+ * the seat was already taken (caller maps this to PAIRING_USED).
  */
 export async function completePair(
   pairId: string,
   userBId: string,
-): Promise<PairRow> {
+): Promise<PairRow | null> {
   const result = await query<PairRow>(
     `UPDATE pairs
      SET user_b_id = $2, paired_at = NOW()
-     WHERE id = $1
+     WHERE id = $1 AND user_b_id IS NULL AND status = 'active'
      RETURNING *`,
     [pairId, userBId],
   );
-  if (!result.rows[0]) {
-    throw new Error(`Pair ${pairId} not found`);
-  }
-  return result.rows[0];
+  return result.rows[0] ?? null;
 }
 
 /**

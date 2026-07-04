@@ -39,6 +39,19 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+// Never boot production on the publicly-known dev secrets (a missing env var
+// would otherwise let anyone forge a valid token for any user, silently).
+if (
+  parsed.data.NODE_ENV === "production" &&
+  (parsed.data.JWT_ACCESS_SECRET === "dev-access-secret" ||
+    parsed.data.JWT_REFRESH_SECRET === "dev-refresh-secret")
+) {
+  console.error(
+    "FATAL: JWT_ACCESS_SECRET / JWT_REFRESH_SECRET are unset in production. Refusing to start.",
+  );
+  process.exit(1);
+}
+
 export const config = {
   env: parsed.data.NODE_ENV,
   port: parsed.data.PORT,

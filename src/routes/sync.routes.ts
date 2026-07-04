@@ -24,7 +24,7 @@ router.post(
       const userId = req.user!.id;
       const { device_id, changes } = req.body;
 
-      const results = await syncService.processSync(userId, device_id, changes);
+      const results = await syncService.processSync(userId, req.pairId!, device_id, changes);
 
       // If anything actually landed, tell the pair to refetch — this is how the
       // partner picks up offline changes that were flushed via the batch endpoint

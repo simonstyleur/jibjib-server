@@ -1,22 +1,23 @@
 import cron from "node-cron";
 import { query } from "../db/pool";
 import { logger } from "../utils/logger";
-import { emitToPair } from "../socket/emitter";
-import { WS_EVENTS } from "../constants/events";
+import { endTrip } from "../services/trip.service";
 import { TRIP_AUTO_END_HOURS } from "../constants/limits";
 
-interface AutoEndedTripRow {
+interface StaleTripRow {
   id: string;
-  list_id: string;
   pair_id: string;
-  started_at: string;
-  ended_at: string;
+  shopper_id: string;
 }
 
 /**
  * Schedule trip auto-end check every 15 minutes.
- * Finds active trips that have exceeded TRIP_AUTO_END_HOURS
- * and automatically ends them with status 'auto_ended'.
+ * Finds active trips that have exceeded TRIP_AUTO_END_HOURS and ends each one
+ * through the real endTrip service — NOT a raw UPDATE — so auto-ended trips get
+ * the same treatment as user-ended ones: items_done snapshot, checked items
+ * soft-deleted, and a TRIP_ENDED event whose `{ trip: summary }` payload
+ * matches what the mobile handler dereferences (a bare `{ trip_id, ... }`
+ * payload crashed both partners' apps).
  */
 export function startTripAutoEndJob(): cron.ScheduledTask {
   logger.info(
@@ -26,33 +27,25 @@ export function startTripAutoEndJob(): cron.ScheduledTask {
 
   return cron.schedule("*/15 * * * *", async () => {
     try {
-      // Find and auto-end active trips that exceeded the time limit
-      const result = await query<AutoEndedTripRow>(
-        `UPDATE trips t
-         SET status = 'auto_ended', ended_at = NOW()
-         FROM lists l
+      const result = await query<StaleTripRow>(
+        `SELECT t.id, l.pair_id, t.shopper_id
+         FROM trips t
+         JOIN lists l ON l.id = t.list_id
          WHERE t.status = 'active'
-           AND l.id = t.list_id
-           AND t.started_at < NOW() - INTERVAL '${TRIP_AUTO_END_HOURS} hours'
-         RETURNING t.id, t.list_id, l.pair_id, t.started_at, t.ended_at`,
+           AND t.started_at < NOW() - INTERVAL '${TRIP_AUTO_END_HOURS} hours'`,
       );
 
-      const autoEndedTrips = result.rows;
+      if (result.rows.length === 0) return;
 
-      if (autoEndedTrips.length > 0) {
-        logger.info(
-          { count: autoEndedTrips.length },
-          "Auto-ended stale trips",
-        );
+      logger.info({ count: result.rows.length }, "Auto-ending stale trips");
 
-        // Emit TRIP_ENDED event for each auto-ended trip
-        for (const trip of autoEndedTrips) {
-          emitToPair(trip.pair_id, WS_EVENTS.TRIP_ENDED, {
-            trip_id: trip.id,
-            list_id: trip.list_id,
-            status: "auto_ended",
-            ended_at: trip.ended_at,
-          });
+      // Per-trip try/catch: one failing trip (e.g. concurrently ended by its
+      // shopper) must not block the rest.
+      for (const trip of result.rows) {
+        try {
+          await endTrip(trip.id, trip.pair_id, trip.shopper_id, "auto_ended");
+        } catch (err) {
+          logger.error({ err, tripId: trip.id }, "Failed to auto-end trip");
         }
       }
     } catch (err) {

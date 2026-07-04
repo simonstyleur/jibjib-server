@@ -152,23 +152,31 @@ export async function joinPairing(
     throw new AppError("PAIRING_USED", 409, "This pairing has already been used.");
   }
 
-  // 4. Check user not already fully paired (solo pair from sign-up is OK — archive it)
-  const existingPair = await pairQueries.findActivePairByUserId(userId);
-  if (existingPair) {
-    if (existingPair.user_b_id) {
-      throw new AppError("ALREADY_PAIRED", 409, "You are already paired with someone.");
-    }
-    // Archive the solo pair so the joiner can join the creator's pair
-    await pairQueries.archivePair(existingPair.id);
-  }
-
-  // 5. Check user not joining own pair
+  // 4. Check user not joining own pair. MUST run before any archiving: for
+  // the creator, "their active pair" IS this invite's pair — archiving first
+  // would destroy their own pending pair just for tapping their own link.
   if (pair.user_a_id === userId) {
     throw new AppError("FORBIDDEN", 403, "You cannot join your own pairing.");
   }
 
-  // 6. Complete pair (set user_b), mark token used
+  // 5. Check user not already fully paired (solo pair from sign-up is OK)
+  const existingPair = await pairQueries.findActivePairByUserId(userId);
+  if (existingPair?.user_b_id) {
+    throw new AppError("ALREADY_PAIRED", 409, "You are already paired with someone.");
+  }
+
+  // 6. Claim the seat FIRST (guarded UPDATE — only one concurrent joiner can
+  // win), and only then archive the joiner's solo pair. The losing joiner of
+  // a race keeps their solo pair and items intact.
   const completedPair = await pairQueries.completePair(tokenRow.pair_id, userId);
+  if (!completedPair) {
+    throw new AppError("PAIRING_USED", 409, "This pairing has already been used.");
+  }
+
+  if (existingPair) {
+    await pairQueries.archivePair(existingPair.id);
+  }
+
   await pairingTokenQueries.markUsed(tokenRow.id, userId);
 
   // Revoke remaining tokens for this pair
@@ -295,19 +303,23 @@ export async function unpair(userId: string): Promise<{
   // 1. Revoke all tokens
   await pairingTokenQueries.revokeByPairId(pair.id);
 
-  // 2. Notify the partner in real time so their app clears the pairing
+  // 2. Archive the pair
+  const archived = await pairQueries.archivePair(pair.id);
+
+  // 3. Reprovision a solo pair + default list for the leaving user.
+  const fresh = await ensureSoloPairAndList(userId);
+
+  // 4. Notify the partner in real time so their app clears the pairing
   // immediately instead of waiting for their next /api/user/me self-heal. Target
   // the partner's stable user room (pair rooms can be stale after churn).
+  // MUST be last: the client reacts by re-handshaking the socket and refetching
+  // /me — emitting before the archive commits would let both land on the stale
+  // still-active pair (socket silently rejoins the old room, UI re-sets the
+  // pairing it just cleared).
   const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
   if (partnerId) {
     emitToUser(partnerId, WS_EVENTS.PAIR_REMOVED, { pair_id: pair.id, removed_by: userId });
   }
-
-  // 3. Archive the pair
-  const archived = await pairQueries.archivePair(pair.id);
-
-  // 4. Reprovision a solo pair + default list for the leaving user.
-  const fresh = await ensureSoloPairAndList(userId);
 
   return {
     archived_at: archived.archived_at!,

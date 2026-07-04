@@ -109,6 +109,7 @@ export async function endTrip(
   tripId: string,
   pairId: string,
   _userId: string,
+  status: "completed" | "auto_ended" = "completed",
 ): Promise<TripSummary> {
   // Find the trip and verify it exists and is active
   const trip = await findTripById(tripId);
@@ -123,7 +124,7 @@ export async function endTrip(
   await verifyListAccess(trip.list_id, pairId);
 
   // End the trip
-  const endedTrip = await dbEndTrip(tripId, "completed");
+  const endedTrip = await dbEndTrip(tripId, status);
 
   // Calculate duration in minutes
   const startMs = new Date(endedTrip.started_at).getTime();
@@ -179,8 +180,9 @@ export async function endTrip(
   );
   emitToPair(pairId, WS_EVENTS.TRIP_ENDED, { trip: summary });
 
-  // Send push notification to partner
-  const pair = await findPairById(pairId);
+  // Send push notification to partner (skip for auto-ended trips — "X finished
+  // shopping in 480 min" hours after the fact is noise, not news)
+  const pair = status === "completed" ? await findPairById(pairId) : null;
   if (pair) {
     const partnerId = pair.user_a_id === _userId ? pair.user_b_id : pair.user_a_id;
     if (partnerId) {

@@ -35,6 +35,11 @@ import { startTripAutoEndJob } from "./jobs/trip-auto-end.job";
 const app = express();
 const server = createServer(app);
 
+// Behind Dokploy's proxy: trust one hop so req.ip is the real client address
+// from X-Forwarded-For. Without this every user shares the proxy's IP and the
+// per-IP rate limits become one global bucket (instant 429s for everyone).
+app.set("trust proxy", 1);
+
 // Global middleware
 app.use(helmet());
 app.use(cors());
@@ -47,10 +52,12 @@ const authRateLimit = rateLimit({
   keyPrefix: "auth",
 });
 
-// Rate limiting for general API (more generous)
+// Rate limiting for general API (more generous). Keyed per client IP — a
+// couple shopping together often shares one household/carrier IP, and rapid
+// item-checking during a trip is normal use, so keep real headroom.
 const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: config.env === "development" ? 1000 : 120,
+  max: config.env === "development" ? 1000 : 300,
   keyPrefix: "api",
 });
 
