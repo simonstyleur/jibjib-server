@@ -1,6 +1,7 @@
 import { query } from "../db/pool";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { renderPush, PARTNER_FALLBACK, type PushTemplate, type PushLanguage } from "../i18n/push";
 import type { NotificationType, NotificationPreference } from "../types";
 
 interface NotificationPrefRow {
@@ -51,7 +52,11 @@ export async function updatePreferences(
 }
 
 /**
- * Send a push notification to a user via OneSignal REST API.
+ * Send a localized push notification to a user via OneSignal REST API.
+ *
+ * The copy comes from a template (src/i18n/push.ts) rendered in the
+ * RECIPIENT's language (users.language). `params.name` defaults to the
+ * localized "Your partner" when the caller passes null/undefined.
  *
  * Checks that:
  * 1. The user has a OneSignal player ID registered
@@ -62,8 +67,8 @@ export async function updatePreferences(
 export async function sendPushNotification(
   userId: string,
   type: NotificationType,
-  title: string,
-  body: string,
+  template: PushTemplate,
+  params: Record<string, string | number | null | undefined>,
   data?: Record<string, unknown>,
 ): Promise<void> {
   try {
@@ -84,6 +89,21 @@ export async function sendPushNotification(
       logger.debug("OneSignal credentials not configured, skipping push notification");
       return;
     }
+
+    // Render the copy in the recipient's language
+    const langResult = await query<{ language: PushLanguage }>(
+      `SELECT language FROM users WHERE id = $1`,
+      [userId],
+    );
+    const language = langResult.rows[0]?.language ?? "en";
+    const cleanParams: Record<string, string | number> = { };
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== null && v !== undefined) cleanParams[k] = v;
+    }
+    if (cleanParams.name === undefined) {
+      cleanParams.name = PARTNER_FALLBACK[language] ?? PARTNER_FALLBACK.en;
+    }
+    const { title, body } = renderPush(language, template, cleanParams);
 
     // Send via OneSignal REST API using external user ID
     // (frontend calls OneSignal.login(userId) to link devices)

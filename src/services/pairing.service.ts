@@ -188,12 +188,11 @@ export async function joinPairing(
 
   // Send push notification to the creator that their partner joined
   const joiner = await findUserById(userId);
-  const joinerName = joiner?.name ?? "Your partner";
   sendPushNotification(
     completedPair.user_a_id,
     "pairing_invite",
-    "Partner joined!",
-    `${joinerName} has joined your JibJib pair`,
+    "partner_joined",
+    { name: joiner?.name },
     { pair_id: completedPair.id },
   );
 

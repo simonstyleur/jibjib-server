@@ -67,17 +67,12 @@ export async function sendMessage(
           findUserById(userId),
           findItemById(itemId),
         ]);
-        const senderName = sender?.name ?? "Your partner";
-        const itemName = item?.name ?? "an item";
-        const body =
-          type === "text"
-            ? `${senderName}: ${text}`
-            : `${senderName} sent a sticker on ${itemName}`;
+        const itemName = item?.name ?? "…";
         sendPushNotification(
           partnerId,
           "item_message",
-          itemName,
-          body,
+          type === "text" ? "message_text" : "message_sticker",
+          { name: sender?.name, item: itemName, text },
           { item_id: itemId, list_id: listId },
         );
       }

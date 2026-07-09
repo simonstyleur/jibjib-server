@@ -106,15 +106,12 @@ export async function addItems(
     const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
     if (partnerId) {
       const user = await findUserById(userId);
-      const adderName = user?.name ?? "Your partner";
       const itemNames = created.map((i) => i.name).join(", ");
       sendPushNotification(
         partnerId,
         "items_added",
-        "New items added",
-        created.length === 1
-          ? `${adderName} added "${created[0].name}" to the list`
-          : `${adderName} added ${created.length} items: ${itemNames}`,
+        created.length === 1 ? "item_added_one" : "items_added_many",
+        { name: user?.name, item: created[0].name, count: created.length, items: itemNames },
         { list_id: listId },
       );
     }

@@ -74,12 +74,11 @@ export async function startTrip(
     const partnerId = pair.user_a_id === userId ? pair.user_b_id : pair.user_a_id;
     if (partnerId) {
       const user = await findUserById(userId);
-      const shopperName = user?.name ?? "Your partner";
       sendPushNotification(
         partnerId,
         "trip_started",
-        "Shopping trip started!",
-        `${shopperName} is heading to the store with ${itemsTotal} items`,
+        "trip_started",
+        { name: user?.name, count: itemsTotal },
         { trip_id: trip.id, list_id: listId },
       );
     }
@@ -187,12 +186,11 @@ export async function endTrip(
     const partnerId = pair.user_a_id === _userId ? pair.user_b_id : pair.user_a_id;
     if (partnerId) {
       const user = await findUserById(_userId);
-      const shopperName = user?.name ?? "Your partner";
       sendPushNotification(
         partnerId,
         "trip_completed",
-        "Shopping trip completed!",
-        `${shopperName} finished shopping in ${durationMinutes} min — ${summary.items_done} items bought`,
+        "trip_completed",
+        { name: user?.name, minutes: durationMinutes, count: summary.items_done },
         { trip_id: summary.id, list_id: trip.list_id },
       );
     }
