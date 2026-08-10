@@ -111,7 +111,9 @@ export async function addItems(
         partnerId,
         "items_added",
         created.length === 1 ? "item_added_one" : "items_added_many",
-        { name: user?.name, item: created[0].name, count: created.length, items: itemNames },
+        // items_list is the verbatim names. The counted "3 items" phrase is
+        // derived from count inside renderPush so it pluralises per language.
+        { name: user?.name, item: created[0].name, count: created.length, items_list: itemNames },
         { list_id: listId },
       );
     }
