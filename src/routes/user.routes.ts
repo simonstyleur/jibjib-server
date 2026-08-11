@@ -23,6 +23,16 @@ const updateProfileSchema = z.object({
   name: z.string().min(1).max(MAX_USER_NAME_LENGTH).optional(),
   language: z.enum(["en", "fr", "ar"]).optional(),
   onesignal_player_id: z.string().min(1).optional(),
+  // Avatars picked from the app's built-in set travel as "preset:<id>", which
+  // avoids a migration and lets an uploaded photo keep using the same column.
+  //
+  // Deliberately NOT a free-form string: this endpoint must not let a client
+  // write an arbitrary URL into avatar_url, since that value is served to the
+  // partner's app. POST /me/avatar remains the only way a real URL gets there.
+  avatar_url: z
+    .string()
+    .regex(/^preset:[a-z0-9_-]{1,32}$/, "Must be a built-in avatar preset")
+    .optional(),
 });
 
 /**
