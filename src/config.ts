@@ -17,6 +17,17 @@ const envSchema = z.object({
 
   // iOS bundle id — the expected `aud` claim of Apple identity tokens.
   APPLE_BUNDLE_ID: z.string().default("app.jibjib.mobile"),
+  /**
+   * Audiences accepted on a Google ID token, comma separated.
+   *
+   * Counter-intuitively this is the WEB client id, not the Android one: a native
+   * Android sign-in returns a token whose `aud` is the web client. The Android
+   * OAuth clients exist only so Google will issue the token in the first place,
+   * and are never named here. An iOS client id would be added to this same list.
+   */
+  GOOGLE_CLIENT_IDS: z
+    .string()
+    .default("290242045302-vqe2qvma67pkn1vd1k4evitqi5bqltdv.apps.googleusercontent.com"),
 
   MINIO_ENDPOINT: z.string().default("localhost"),
   MINIO_PORT: z.coerce.number().default(9000),
@@ -71,6 +82,9 @@ export const config = {
   },
   apple: {
     bundleId: parsed.data.APPLE_BUNDLE_ID,
+  },
+  google: {
+    clientIds: parsed.data.GOOGLE_CLIENT_IDS.split(",").map((id) => id.trim()).filter(Boolean),
   },
   minio: {
     endpoint: parsed.data.MINIO_ENDPOINT,

@@ -7,6 +7,7 @@ import {
   verifyRefreshToken,
 } from "../utils/jwt";
 import { verifyAppleIdentityToken } from "./apple-auth.service";
+import { verifyGoogleIdentityToken } from "./google-auth.service";
 import { REFRESH_TOKEN_EXPIRY_DAYS } from "../constants/limits";
 import { AppError } from "../middleware/error.middleware";
 import { logger } from "../utils/logger";
@@ -93,13 +94,28 @@ export async function createAnonymousUser(
  * Social login. Verifies the provider identity token, finds or creates the user
  * keyed by (provider, sub), and issues a token pair. Returning users reuse their
  * existing pair + active list; first-time users get a solo pair + default list
- * (mirrors anonymous sign-up). Currently Apple only; other providers 501 until
- * their OAuth client is configured.
+ * (mirrors anonymous sign-up). Apple and Google are supported; anything else
+ * 501s until its OAuth client is configured.
  */
 export async function loginWithSocial(
   data: SocialInput,
 ): Promise<{ user: User; tokens: TokenPair; pair: { id: string }; list: { id: string; name: string; is_active: boolean } }> {
-  if (data.provider !== "apple") {
+  // Each provider only has to turn its token into a stable id; everything after
+  // this point is identical, so the account/pair/list logic below is shared
+  // rather than duplicated per provider.
+  let sub: string;
+  let providerName: string | undefined;
+
+  if (data.provider === "apple") {
+    ({ sub } = await verifyAppleIdentityToken(data.id_token));
+  } else if (data.provider === "google") {
+    const identity = await verifyGoogleIdentityToken(data.id_token);
+    sub = identity.sub;
+    // Apple only sends a name on first authorisation, so the app passes it up.
+    // Google puts it in the token every time, which is a better source than
+    // whatever the client claims.
+    providerName = identity.name;
+  } else {
     throw new AppError(
       "NOT_IMPLEMENTED",
       501,
@@ -107,9 +123,7 @@ export async function loginWithSocial(
     );
   }
 
-  const { sub } = await verifyAppleIdentityToken(data.id_token);
-
-  let user = await findUserByAuth("apple", sub);
+  let user = await findUserByAuth(data.provider, sub);
   let pairId: string;
   let list: { id: string; name: string; is_active: boolean };
 
@@ -129,9 +143,9 @@ export async function loginWithSocial(
   } else {
     // First sign-in — create the account, a solo pair, and a default list.
     user = await createUser({
-      name: data.name?.trim() || "Friend",
+      name: providerName?.trim() || data.name?.trim() || "Friend",
       language: "en",
-      auth_provider: "apple",
+      auth_provider: data.provider,
       auth_id: sub,
       device_os: data.device_os,
       app_version: data.app_version,
@@ -166,7 +180,13 @@ export async function linkSocialAccount(
   userId: string,
   data: LinkInput,
 ): Promise<User> {
-  if (data.provider !== "apple") {
+  let sub: string;
+
+  if (data.provider === "apple") {
+    ({ sub } = await verifyAppleIdentityToken(data.id_token));
+  } else if (data.provider === "google") {
+    ({ sub } = await verifyGoogleIdentityToken(data.id_token));
+  } else {
     throw new AppError(
       "NOT_IMPLEMENTED",
       501,
@@ -174,14 +194,14 @@ export async function linkSocialAccount(
     );
   }
 
-  const { sub } = await verifyAppleIdentityToken(data.id_token);
-
-  const existing = await findUserByAuth("apple", sub);
+  const existing = await findUserByAuth(data.provider, sub);
   if (existing && existing.id !== userId) {
     throw new AppError(
       "ALREADY_LINKED",
       409,
-      "This Apple ID is already linked to another account.",
+      data.provider === "google"
+        ? "This Google account is already linked to another account."
+        : "This Apple ID is already linked to another account.",
     );
   }
   if (existing && existing.id === userId) {
@@ -189,7 +209,7 @@ export async function linkSocialAccount(
     return existing;
   }
 
-  const updated = await linkAuthProvider(userId, "apple", sub);
+  const updated = await linkAuthProvider(userId, data.provider, sub);
   if (!updated) {
     throw new AppError("NOT_FOUND", 404, "User not found.");
   }
