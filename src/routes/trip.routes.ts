@@ -16,6 +16,7 @@ import {
   getSpend,
   setItemPrice,
   estimateList,
+  getHistory,
 } from "../services/trip.service";
 
 const router = Router();
@@ -162,6 +163,26 @@ router.put(
         req.body.price_minor,
       );
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /history?limit=50
+ * Past shops for the pair, with what each bought and skipped, and prices.
+ */
+router.get(
+  "/history",
+  authenticate,
+  requirePair,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const raw = Number(req.query.limit);
+      const limit = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 100) : 50;
+      const data = await getHistory(req.pairId!, limit);
+      res.json({ data });
     } catch (err) {
       next(err);
     }

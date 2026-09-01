@@ -146,3 +146,103 @@ export async function getSpendByShopper(
   );
   return rows as Array<{ shopper_id: string; total_minor: number; trips: number }>;
 }
+
+/**
+ * Record what a shop left behind, at the moment it ended.
+ *
+ * Skipped items were previously only ever derived from the live list, which
+ * answers "what is still unbought now" rather than "what did that shop skip".
+ * The two diverge as soon as anyone edits the list, so history needs its own
+ * copy taken at the time.
+ */
+export async function recordSkipped(
+  tripId: string,
+  items: Array<{ id: string; name: string; category: string; quantity: string | null }>,
+): Promise<void> {
+  if (items.length === 0) return;
+  const values: unknown[] = [tripId];
+  const tuples = items.map((it, i) => {
+    const b = i * 4;
+    values.push(it.id, it.name, it.category, it.quantity);
+    return `($1, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, FALSE, NOW())`;
+  });
+  await pool.query(
+    `INSERT INTO trip_items
+       (trip_id, item_id, item_name, category, quantity, was_bought, checked_at)
+     VALUES ${tuples.join(", ")}
+     ON CONFLICT (trip_id, item_id) DO NOTHING`,
+    values,
+  );
+}
+
+export interface TripHistoryRow {
+  trip_id: string;
+  started_at: string;
+  ended_at: string;
+  shopper_id: string;
+  shopper_name: string;
+  shopper_avatar_url: string | null;
+  items_added_during: number;
+  total_minor: number | null;
+  currency: string | null;
+  /** Bought and skipped, distinguished by was_bought. */
+  items: Array<{
+    item_id: string | null;
+    item_name: string;
+    category: string;
+    quantity: string | null;
+    price_minor: number | null;
+    was_bought: boolean;
+  }>;
+}
+
+/**
+ * Completed shops for a pair, newest first, with what each one bought and
+ * skipped.
+ *
+ * Server-side because a shop belongs to the pair, not to a device. The
+ * client's local archive only ever held trips that device happened to witness,
+ * so two partners saw two different histories.
+ *
+ * Items are aggregated in the query rather than fetched per trip: a shop can
+ * hold dozens of rows and a page of history would otherwise be a request each.
+ */
+export async function getTripHistory(
+  pairId: string,
+  limit: number,
+): Promise<TripHistoryRow[]> {
+  const { rows } = await pool.query(
+    `SELECT t.id                    AS trip_id,
+            t.started_at,
+            t.ended_at,
+            t.items_added_during,
+            t.total_minor,
+            t.currency,
+            u.id                    AS shopper_id,
+            u.name                  AS shopper_name,
+            u.avatar_url            AS shopper_avatar_url,
+            COALESCE(
+              (SELECT json_agg(json_build_object(
+                        'item_id',     ti.item_id,
+                        'item_name',   ti.item_name,
+                        'category',    ti.category,
+                        'quantity',    ti.quantity,
+                        'price_minor', ti.price_minor,
+                        'was_bought',  ti.was_bought
+                      ) ORDER BY ti.was_bought DESC, ti.checked_at)
+                 FROM trip_items ti
+                WHERE ti.trip_id = t.id),
+              '[]'::json
+            )                       AS items
+       FROM trips t
+       JOIN lists l ON l.id = t.list_id
+       JOIN users u ON u.id = t.shopper_id
+      WHERE l.pair_id = $1
+        AND t.status IN ('completed', 'auto_ended')
+        AND t.ended_at IS NOT NULL
+      ORDER BY t.ended_at DESC
+      LIMIT $2`,
+    [pairId, limit],
+  );
+  return rows as TripHistoryRow[];
+}

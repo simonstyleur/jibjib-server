@@ -7,7 +7,7 @@ import {
   endTrip as dbEndTrip,
   findSkippedItems,
 } from "../db/queries/trip.queries";
-import { setPurchasePrice } from "../db/queries/purchase.queries";
+import { setPurchasePrice, recordSkipped, getTripHistory } from "../db/queries/purchase.queries";
 import { findItemById, findItemsByListId } from "../db/queries/item.queries";
 import { recordObservedPrice } from "../db/queries/history.queries";
 import { estimateListCost } from "./history.service";
@@ -150,6 +150,29 @@ export async function endTrip(
 
   // Get skipped items (unchecked items remaining)
   const skippedItems = await findSkippedItems(trip.list_id);
+
+  // Persist them against the trip. This list is derived from the LIVE list, so
+  // it is only accurate right now — the moment anyone edits the list it stops
+  // describing what this shop skipped. History reads the stored copy.
+  try {
+    const full = await findItemsByListId(trip.list_id);
+    const byId = new Map(full.map((i) => [i.id, i]));
+    await recordSkipped(
+      tripId,
+      skippedItems.map((si) => {
+        const it = byId.get(si.id);
+        return {
+          id: si.id,
+          name: si.name,
+          category: it?.category ?? "other",
+          quantity: it?.quantity ?? null,
+        };
+      }),
+    );
+  } catch (err) {
+    // History bookkeeping must never stop a shop from ending.
+    logger.warn({ err, tripId }, "Failed to record skipped items");
+  }
 
   // Count checked items NOW, before they get soft-deleted, so we can both
   // persist the snapshot AND surface the real count in the WS event + push.
@@ -310,4 +333,52 @@ export async function estimateList(listId: string, pairId: string) {
     .filter((i) => !i.is_checked)
     .map((i) => ({ name: i.name, category: i.category }));
   return estimateListCost(pairId, pending);
+}
+
+/**
+ * Past shops for a pair, newest first.
+ *
+ * Shaped to the ArchivedTrip the client already renders, so switching the
+ * history list from its local store to this endpoint needs no new UI — the
+ * only genuinely new field is price_minor on a bought item, which is what the
+ * local store could never have carried for the partner's shops.
+ */
+export async function getHistory(pairId: string, limit: number) {
+  const rows = await getTripHistory(pairId, limit);
+
+  return rows.map((r) => {
+    const bought = r.items.filter((i) => i.was_bought);
+    const skipped = r.items.filter((i) => !i.was_bought);
+    const startMs = new Date(r.started_at).getTime();
+    const endMs = new Date(r.ended_at).getTime();
+
+    return {
+      id: r.trip_id,
+      started_at: r.started_at,
+      ended_at: r.ended_at,
+      duration_minutes: Math.max(0, Math.round((endMs - startMs) / 60000)),
+      items_bought: bought.map((i) => ({
+        // item_id is null once the underlying item is deleted; the row still
+        // describes a real purchase, so fall back to a stable synthetic key
+        // rather than dropping it.
+        id: i.item_id ?? `${r.trip_id}:${i.item_name}`,
+        name: i.item_name,
+        category: i.category,
+        quantity: i.quantity,
+        price_minor: i.price_minor ?? undefined,
+      })),
+      items_skipped: skipped.map((i) => ({
+        id: i.item_id ?? `${r.trip_id}:${i.item_name}`,
+        name: i.item_name,
+      })),
+      items_added_during: r.items_added_during,
+      shopper: {
+        id: r.shopper_id,
+        name: r.shopper_name,
+        avatar_url: r.shopper_avatar_url,
+      },
+      total_minor: r.total_minor ?? undefined,
+      currency: r.currency ?? undefined,
+    };
+  });
 }
