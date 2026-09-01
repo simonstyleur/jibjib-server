@@ -2,8 +2,21 @@ import { Router, Request, Response, NextFunction } from "express";
 import { authenticate } from "../middleware/auth.middleware";
 import { requirePair } from "../middleware/pair.middleware";
 import { validate, validateQuery } from "../middleware/validate.middleware";
-import { startTripSchema, activeTripQuerySchema, endTripSchema } from "../validators/trip.schema";
-import { startTrip, getActiveTrip, endTrip, getSpend } from "../services/trip.service";
+import {
+  startTripSchema,
+  activeTripQuerySchema,
+  endTripSchema,
+  itemPriceSchema,
+  estimateQuerySchema,
+} from "../validators/trip.schema";
+import {
+  startTrip,
+  getActiveTrip,
+  endTrip,
+  getSpend,
+  setItemPrice,
+  estimateList,
+} from "../services/trip.service";
 
 const router = Router();
 
@@ -103,6 +116,52 @@ router.get(
       const months = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 24) : 6;
       const data = await getSpend(req.pairId!, months);
       res.json({ data });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /estimate?list_id=...
+ * Approximate cost of everything still unchecked on the list, from prices this
+ * pair has paid before. Returns covered/total so the client can be explicit
+ * about how much of the basket the figure actually accounts for.
+ */
+router.get(
+  "/estimate",
+  authenticate,
+  requirePair,
+  validateQuery(estimateQuerySchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const data = await estimateList(req.query.list_id as string, req.pairId!);
+      res.json({ data });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * PUT /:tripId/items/:itemId/price
+ * Record what one item cost on this shop. Also feeds the pair's price memory,
+ * so future estimates improve without anyone maintaining a price list.
+ */
+router.put(
+  "/:tripId/items/:itemId/price",
+  authenticate,
+  requirePair,
+  validate(itemPriceSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await setItemPrice(
+        req.params.tripId as string,
+        req.params.itemId as string,
+        req.pairId!,
+        req.body.price_minor,
+      );
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

@@ -35,3 +35,12 @@ export const endTripSchema = z
   .default({});
 
 export type EndTripInput = z.infer<typeof endTripSchema>;
+
+/** Body for setting one item's purchase price. Null clears it. */
+export const itemPriceSchema = z.object({
+  price_minor: z.number().int().min(0).max(100_000_000).nullable(),
+});
+
+export const estimateQuerySchema = z.object({
+  list_id: z.string().uuid(),
+});

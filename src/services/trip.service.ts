@@ -7,6 +7,10 @@ import {
   endTrip as dbEndTrip,
   findSkippedItems,
 } from "../db/queries/trip.queries";
+import { setPurchasePrice } from "../db/queries/purchase.queries";
+import { findItemById, findItemsByListId } from "../db/queries/item.queries";
+import { recordObservedPrice } from "../db/queries/history.queries";
+import { estimateListCost } from "./history.service";
 import {
   getMonthlySpend,
   getSpendByShopper,
@@ -248,4 +252,62 @@ export async function getSpend(
     months: buckets,
     by_shopper: byShopper,
   };
+}
+
+/**
+ * Attach a price to one item bought on a trip.
+ *
+ * Writes to two places on purpose. trip_items keeps the price as a fact about
+ * that shop, immutable once the trip completes. item_history takes the same
+ * figure as an observation, which is what later estimates are built from — so
+ * price memory accumulates as a by-product of shopping rather than as something
+ * the user maintains.
+ *
+ * Only allowed while the trip is active: a completed trip is history.
+ */
+export async function setItemPrice(
+  tripId: string,
+  itemId: string,
+  pairId: string,
+  priceMinor: number | null,
+): Promise<void> {
+  const trip = await findTripById(tripId);
+  if (!trip) {
+    throw new AppError("NOT_FOUND", 404, "Trip not found.");
+  }
+  await verifyListAccess(trip.list_id, pairId);
+  if (trip.status !== "active") {
+    throw new AppError("BAD_REQUEST", 400, "Trip is no longer active.");
+  }
+
+  await setPurchasePrice(tripId, itemId, priceMinor);
+
+  // Clearing a price is a correction, not an observation — nothing to learn.
+  if (priceMinor !== null) {
+    const item = await findItemById(itemId);
+    if (item) {
+      await recordObservedPrice({
+        pairId,
+        itemName: item.name,
+        category: item.category,
+        priceMinor,
+      });
+    }
+  }
+}
+
+/**
+ * Estimate the cost of what is still unchecked on a list.
+ *
+ * Reads the live list itself rather than taking names from the client, so the
+ * figure always matches what is actually on screen and cannot be influenced by
+ * a crafted request.
+ */
+export async function estimateList(listId: string, pairId: string) {
+  await verifyListAccess(listId, pairId);
+  const items = await findItemsByListId(listId);
+  const pending = items
+    .filter((i) => !i.is_checked)
+    .map((i) => ({ name: i.name, category: i.category }));
+  return estimateListCost(pairId, pending);
 }
