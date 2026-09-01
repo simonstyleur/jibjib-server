@@ -13,6 +13,13 @@ export interface Trip {
   started_at: string;
   ended_at?: string;
   duration_minutes?: number;
+  /**
+   * What the shop cost, in integer minor units, when a shopper recorded one.
+   * Optional throughout: a trip with no total is a normal trip.
+   */
+  total_minor?: number;
+  /** ISO 4217, stamped per trip so changing it later cannot rewrite history. */
+  currency?: string;
 }
 
 export interface TripSummary extends Trip {

@@ -10,6 +10,8 @@ interface TripRow {
   items_added_during: number;
   started_at: string;
   ended_at: string | null;
+  total_minor: number | null;
+  currency: string | null;
   shopper_id: string;
   shopper_name: string;
   shopper_avatar_url: string | null;
@@ -30,6 +32,13 @@ function rowToTrip(row: TripRow): Trip {
     items_added_during: row.items_added_during,
     started_at: row.started_at,
   };
+
+  // Only present once a shopper actually recorded one; a trip without a total
+  // is perfectly normal, so these stay off the object rather than being null.
+  if (row.total_minor !== null && row.total_minor !== undefined) {
+    trip.total_minor = row.total_minor;
+    trip.currency = row.currency ?? undefined;
+  }
 
   if (row.ended_at) {
     trip.ended_at = row.ended_at;
@@ -83,6 +92,8 @@ export async function findActiveTrip(listId: string): Promise<Trip | null> {
        t.items_added_during,
        t.started_at,
        t.ended_at,
+       t.total_minor,
+       t.currency,
        u.id AS shopper_id,
        u.name AS shopper_name,
        u.avatar_url AS shopper_avatar_url
@@ -110,6 +121,8 @@ export async function findTripById(tripId: string): Promise<Trip | null> {
        t.items_added_during,
        t.started_at,
        t.ended_at,
+       t.total_minor,
+       t.currency,
        u.id AS shopper_id,
        u.name AS shopper_name,
        u.avatar_url AS shopper_avatar_url
@@ -158,6 +171,8 @@ export async function endTrip(
        t.items_added_during,
        t.started_at,
        t.ended_at,
+       t.total_minor,
+       t.currency,
        u.id AS shopper_id,
        u.name AS shopper_name,
        u.avatar_url AS shopper_avatar_url`,
