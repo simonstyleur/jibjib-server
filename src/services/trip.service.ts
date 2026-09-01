@@ -7,6 +7,11 @@ import {
   endTrip as dbEndTrip,
   findSkippedItems,
 } from "../db/queries/trip.queries";
+import {
+  getMonthlySpend,
+  getSpendByShopper,
+  type SpendBucket,
+} from "../db/queries/purchase.queries";
 import { findPairById } from "../db/queries/pair.queries";
 import { findUserById } from "../db/queries/user.queries";
 import { query } from "../db/pool";
@@ -109,6 +114,15 @@ export async function endTrip(
   pairId: string,
   _userId: string,
   status: "completed" | "auto_ended" = "completed",
+  /**
+   * Optional spend for the shop, in integer minor units, plus the currency it
+   * was entered in. Stamped on the trip rather than derived from item prices:
+   * a receipt includes bags, deposits and discounts, so the number the user
+   * typed is the authoritative one. Currency is recorded per trip so a pair
+   * that later changes it does not reinterpret its own history.
+   */
+  totalMinor: number | null = null,
+  currency: string | null = null,
 ): Promise<TripSummary> {
   // Find the trip and verify it exists and is active
   const trip = await findTripById(tripId);
@@ -123,7 +137,7 @@ export async function endTrip(
   await verifyListAccess(trip.list_id, pairId);
 
   // End the trip
-  const endedTrip = await dbEndTrip(tripId, status);
+  const endedTrip = await dbEndTrip(tripId, status, totalMinor, currency);
 
   // Calculate duration in minutes
   const startMs = new Date(endedTrip.started_at).getTime();
@@ -197,4 +211,41 @@ export async function endTrip(
   }
 
   return summary;
+}
+
+/**
+ * Spend history for a pair, newest month first.
+ *
+ * Returns priced_trips alongside total_trips for each month so the client can
+ * say "1,240 MAD across 3 of 5 shops". Presenting a total that silently omits
+ * unpriced shops would understate spending, and a figure the user cannot
+ * reconcile with their own memory is worse than showing no figure at all.
+ */
+export async function getSpend(
+  pairId: string,
+  months: number,
+): Promise<{
+  currency: string | null;
+  months: SpendBucket[];
+  by_shopper: Array<{ shopper_id: string; total_minor: number; trips: number }>;
+}> {
+  const to = new Date();
+  const from = new Date(
+    Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - (months - 1), 1, 0, 0, 0),
+  );
+  // Exclusive upper bound one day out, so trips completed today are included
+  // regardless of the caller's timezone.
+  const toExclusive = new Date(to.getTime() + 24 * 60 * 60 * 1000);
+
+  const [buckets, byShopper, pair] = await Promise.all([
+    getMonthlySpend(pairId, from.toISOString(), toExclusive.toISOString()),
+    getSpendByShopper(pairId, from.toISOString(), toExclusive.toISOString()),
+    findPairById(pairId),
+  ]);
+
+  return {
+    currency: (pair as { currency?: string | null } | null)?.currency ?? null,
+    months: buckets,
+    by_shopper: byShopper,
+  };
 }

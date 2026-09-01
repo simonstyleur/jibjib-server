@@ -11,7 +11,9 @@ import {
 import type { ItemRow } from "../db/queries/item.queries";
 import { findPairById } from "../db/queries/pair.queries";
 import { findUserById } from "../db/queries/user.queries";
-import { incrementItemsAddedDuring } from "../db/queries/trip.queries";
+import { incrementItemsAddedDuring, findActiveTrip } from "../db/queries/trip.queries";
+import { logger } from "../utils/logger";
+import { recordPurchase, removePurchase } from "../db/queries/purchase.queries";
 import { AppError } from "../middleware/error.middleware";
 import { MAX_ITEMS_PER_LIST, UNDO_WINDOW_SECONDS } from "../constants/limits";
 import { emitToPair } from "../socket/emitter";
@@ -180,6 +182,35 @@ export async function updateItem(
 
   const updatedRow = await dbUpdateItem(itemId, fields);
   const item = toItem(updatedRow);
+
+  // Keep the purchase log in step with the tick. Ticking an item during a shop
+  // is the moment it was bought, so that is when it is recorded; unticking in
+  // the same shop means it was not, so the record goes away again. Completed
+  // trips are history and are never rewritten — findActiveTrip returning null
+  // makes this a no-op outside a shop, which is the common case.
+  if (updates.is_checked !== undefined) {
+    try {
+      const activeTrip = await findActiveTrip(listId);
+      if (activeTrip) {
+        if (updates.is_checked) {
+          await recordPurchase({
+            tripId: activeTrip.id,
+            itemId: item.id,
+            itemName: item.name,
+            category: item.category,
+            quantity: item.quantity,
+            checkedBy: userId,
+          });
+        } else {
+          await removePurchase(activeTrip.id, item.id);
+        }
+      }
+    } catch (err) {
+      // Bookkeeping must never fail the tick. The user checked something off
+      // and the list has to reflect that whatever the log does.
+      logger.warn({ err, itemId }, "Failed to update purchase log");
+    }
+  }
 
   emitToPair(pairId, WS_EVENTS.ITEM_UPDATED, {
     list_id: listId,

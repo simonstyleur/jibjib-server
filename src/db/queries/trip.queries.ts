@@ -127,11 +127,22 @@ export async function findTripById(tripId: string): Promise<Trip | null> {
 export async function endTrip(
   tripId: string,
   status: TripStatus = "completed",
+  /**
+   * What the shop cost, in integer minor units. Optional throughout: older
+   * clients end a trip without sending one, and a trip with no total is a
+   * perfectly normal trip rather than an error.
+   */
+  totalMinor: number | null = null,
+  currency: string | null = null,
 ): Promise<Trip> {
   const result = await query<TripRow>(
     `UPDATE trips t
      SET status = $2,
          ended_at = NOW(),
+         -- COALESCE so ending a trip without a total never wipes one that was
+         -- already recorded during the shop.
+         total_minor = COALESCE($3, t.total_minor),
+         currency    = COALESCE($4, t.currency),
          -- Keep items_done <= items_total + items_added_during (chk_items): if
          -- more items were bought than tracked (e.g. one added mid-trip without
          -- the counter bumping), raise items_total to cover them.
@@ -150,7 +161,7 @@ export async function endTrip(
        u.id AS shopper_id,
        u.name AS shopper_name,
        u.avatar_url AS shopper_avatar_url`,
-    [tripId, status],
+    [tripId, status, totalMinor, currency],
   );
   if (!result.rows[0]) {
     throw new Error(`Trip ${tripId} not found`);

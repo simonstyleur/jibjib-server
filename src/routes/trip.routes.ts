@@ -2,8 +2,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { authenticate } from "../middleware/auth.middleware";
 import { requirePair } from "../middleware/pair.middleware";
 import { validate, validateQuery } from "../middleware/validate.middleware";
-import { startTripSchema, activeTripQuerySchema } from "../validators/trip.schema";
-import { startTrip, getActiveTrip, endTrip } from "../services/trip.service";
+import { startTripSchema, activeTripQuerySchema, endTripSchema } from "../validators/trip.schema";
+import { startTrip, getActiveTrip, endTrip, getSpend } from "../services/trip.service";
 
 const router = Router();
 
@@ -64,13 +64,45 @@ router.post(
   "/:tripId/end",
   authenticate,
   requirePair,
+  // Body is optional and every field in it is optional: 1.0.4 and 1.0.5 send
+  // no body at all here, and must keep working exactly as before.
+  validate(endTripSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const tripId = req.params.tripId as string;
+      const { total_minor = null, currency = null } = req.body ?? {};
 
-      const trip = await endTrip(tripId, req.pairId!, req.user!.id);
+      const trip = await endTrip(
+        tripId,
+        req.pairId!,
+        req.user!.id,
+        "completed",
+        total_minor ?? null,
+        currency ?? null,
+      );
 
       res.json({ data: trip });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /spend?months=6
+ * Spend per month for the pair, with how many shops in each actually carry a
+ * total so the client can be honest about partial data.
+ */
+router.get(
+  "/spend",
+  authenticate,
+  requirePair,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const raw = Number(req.query.months);
+      const months = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 24) : 6;
+      const data = await getSpend(req.pairId!, months);
+      res.json({ data });
     } catch (err) {
       next(err);
     }
