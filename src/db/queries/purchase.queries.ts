@@ -240,6 +240,16 @@ export async function getTripHistory(
       WHERE l.pair_id = $1
         AND t.status IN ('completed', 'auto_ended')
         AND t.ended_at IS NOT NULL
+        -- A shop that bought nothing is not history worth showing: no items,
+        -- no total, and it pushes real shops down the list. The client used to
+        -- drop these when it built history itself; serving history from here
+        -- moved that decision to the query.
+        --
+        -- items_done rather than a count of trip_items, so trips finished
+        -- before the purchase log existed are judged the same way instead of
+        -- disappearing for having no rows. The total_minor clause keeps a shop
+        -- that somehow carries an amount regardless.
+        AND (t.items_done > 0 OR t.total_minor IS NOT NULL)
       ORDER BY t.ended_at DESC
       LIMIT $2`,
     [pairId, limit],
