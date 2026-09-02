@@ -16,7 +16,7 @@ import {
   getSpendByShopper,
   type SpendBucket,
 } from "../db/queries/purchase.queries";
-import { findPairById } from "../db/queries/pair.queries";
+import { findPairById, adoptPairCurrency } from "../db/queries/pair.queries";
 import { findUserById } from "../db/queries/user.queries";
 import { query } from "../db/pool";
 import { emitToPair } from "../socket/emitter";
@@ -142,6 +142,17 @@ export async function endTrip(
 
   // End the trip
   const endedTrip = await dbEndTrip(tripId, status, totalMinor, currency);
+
+  // First money the pair records establishes their currency. Without this it
+  // stayed NULL forever, and everything derived for the pair came back with no
+  // currency for the client to format with.
+  if (currency) {
+    try {
+      await adoptPairCurrency(pairId, currency);
+    } catch (err) {
+      logger.warn({ err, pairId }, "Failed to adopt pair currency");
+    }
+  }
 
   // Calculate duration in minutes
   const startMs = new Date(endedTrip.started_at).getTime();

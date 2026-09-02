@@ -115,3 +115,22 @@ export async function findPairById(pairId: string): Promise<PairRow | null> {
   );
   return result.rows[0] ?? null;
 }
+
+/**
+ * Adopt a currency for the pair, the first time one is seen.
+ *
+ * The client sends a currency with a trip total, resolved from the device
+ * region. It was being stored on the trip but never on the pair, so every
+ * figure derived for the pair — the basket estimate, remembered item prices —
+ * came back with no currency at all and the client had nothing to format with.
+ *
+ * Only fills a NULL: whichever currency the pair first recorded money in is
+ * theirs, and a later trip in another currency must not silently reinterpret
+ * everything that came before it.
+ */
+export async function adoptPairCurrency(pairId: string, currency: string): Promise<void> {
+  await query(
+    `UPDATE pairs SET currency = $2 WHERE id = $1 AND currency IS NULL`,
+    [pairId, currency],
+  );
+}
